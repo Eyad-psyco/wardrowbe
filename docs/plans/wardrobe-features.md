@@ -1,9 +1,46 @@
-# Seven wardrobe features
+# Eight wardrobe features
+
+## Progress
+
+Tick as each lands. Ordered by dependency — later items assume earlier ones.
+
+- [ ] **§1 Migration** — `user_tags`, `is_public`, `custom_item_types` (one file)
+- [ ] **§2 Feature 6** — drop the worn-before-wash requirement
+- [ ] **§3 Feature 7** — secondary colors (multiple colors per item)
+  - [ ] extract `ColorPicker` to `components/color-picker.tsx`
+  - [ ] secondary-color multi-select in the item edit form
+  - [ ] show all colors in read-only view + wardrobe card
+- [ ] **§4 Feature 2** — free-text tags with suggestions
+  - [ ] `user_tags` column, schemas, normalizing validator
+  - [ ] `GET /items/tags` + tag filter on `GET /items`
+  - [ ] `components/tag-input.tsx` + wire into edit form
+  - [ ] tag filter on the wardrobe page
+- [ ] **§5 Feature 3** — bulk image upload per item + ordering
+  - [ ] multi-file `POST /items/{id}/images`, `max_item_images` config
+  - [ ] dropzone on the thumbnail strip
+  - [ ] native drag-reorder, incl. drop-on-primary
+- [ ] **§6 Feature 4** — card thumbnail carousel
+  - [ ] extract `components/image-carousel.tsx`
+  - [ ] use it in `ItemCard` and the detail dialog
+- [ ] **§7 Feature 5** — private / public items
+  - [ ] `is_public` column + schemas + toggle UI
+  - [ ] `GET /items?user_id=` family gate + public `GET /items/{id}`
+  - [ ] "whose wardrobe" switcher + `readOnly` detail dialog
+- [ ] **§8 Feature 1** — custom clothing types from settings
+  - [ ] `CustomItemType` schema + validators
+  - [ ] body-slot `role_overrides` through the 3 call sites
+  - [ ] outfit exclusion for `role=None`
+  - [ ] per-user AI type vocabulary
+  - [ ] per-type default wash interval
+  - [ ] settings UI card + `useClothingTypes()` merge
+- [ ] **§9 Feature 8** — convert uploads to WebP
+- [ ] i18n keys + `npm run i18n:check`
+- [ ] verification pass (§ Verification)
 
 ## Context
 
-Seven user-requested additions to Wardrowbe. Three are near-free because the schema already
-supports them; four need real work. Ordered by dependency, not by request number.
+Eight user-requested additions to Wardrowbe. Four are near-free because the schema or an existing
+component already covers them; four need real work. Ordered by dependency, not by request number.
 
 Already in place — do not rebuild:
 - `clothing_items.colors ARRAY(String)` exists and is already wired through `ItemUpdate` /
@@ -271,13 +308,56 @@ collisions with the 30 built-in types.
 
 ---
 
+## 9. Feature 8 — convert all uploads to WebP
+
+Entirely contained in [services/image_service.py](backend/app/services/image_service.py) — the
+serving route already needs **zero** changes: `FILENAME_PATTERN`
+([images.py:18](backend/app/api/images.py#L18)) already whitelists `webp` and the content-type map
+([images.py:83-89](backend/app/api/images.py#L83-L89)) already has it. Nothing outside
+`image_service.py` constructs a `_medium` / `_thumb` / `_orig` path (verified by grep), so the
+format lives in one file.
+
+Input formats are unchanged — JPEG/PNG/WebP/HEIC in, WebP out.
+
+- New `image_format: str = Field(default="webp")` in [config.py](backend/app/config.py) beside the
+  other image knobs, so this is a switch rather than a hardcode. Module map in `image_service.py`:
+  `PIL_FORMAT = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}`.
+- `_resize_image(image, max_size, quality, fmt="WEBP")` — thread the format into the single
+  `image.save(output, format=..., quality=..., optimize=True)` at
+  [:84](backend/app/services/image_service.py#L84). (`optimize` is a no-op for WebP; harmless.)
+- `process_and_store` ([:115](backend/app/services/image_service.py#L115),
+  [:133](backend/app/services/image_service.py#L133)) — derive `ext` from `settings.image_format`
+  instead of the two literal `".jpg"`s.
+- **`_save_all_sizes` must derive its format from the existing `image_path` suffix, not from config**
+  ([:238-265](backend/app/services/image_service.py#L238-L265)). This is the one place that can
+  break data: `rotate`, `remove_background` and `restore_original` all overwrite files whose paths
+  are already stored on the row, so a legacy `.jpg` item must keep regenerating `.jpg` derivatives.
+  Writing `foo_medium.webp` while the DB still says `foo_medium.jpg` orphans the row and the image
+  404s. New WebP items regenerate as WebP by the same rule.
+- `remove_background` backup path ([:278](backend/app/services/image_service.py#L278)) —
+  `f"{base_path}_orig{ext}"` with `ext` from `image_path`, same reasoning.
+- Keep the existing RGBA → flatten-onto-white behaviour ([:70-77](backend/app/services/image_service.py#L70-L77))
+  even though WebP supports alpha. `remove_background` composites onto a solid colour deliberately,
+  and preserving transparency here would silently change what background removal produces.
+- Keep the existing 95 / 90 / 88 quality numbers. WebP at those values is smaller than the JPEG it
+  replaces, and re-tuning is a separate measurement job.
+  `# ponytail: quality numbers carried over from JPEG, tune against real photos if size matters`
+- **No backfill.** Existing `.jpg` files keep working: paths are per-row and the serve route handles
+  both extensions. A converting backfill script is a separate ask, not part of this.
+
+Tests to update: `backend/tests/test_image_undo_replace.py:75` and `:132` assert
+`endswith("_orig.jpg")` → `_orig.webp`. Everything else in the suite that mentions `.jpg` is either
+an *input* filename or a hand-seeded DB path, both unaffected.
+
+---
+
 ## Files touched
 
-Backend: one new migration; `models/item.py`, `models/preference.py`(no change needed — JSONB column
-added to the model file), `schemas/item.py`, `schemas/preference.py`, `api/items.py`,
-`services/item_service.py`, `services/ai_service.py`, `services/recommendation_service.py`,
-`services/pairing_service.py`, `services/studio_service.py`, `utils/clothing.py`,
-`workers/tagging.py`, `config.py`.
+Backend: one new migration; `models/item.py`, `models/preference.py`, `schemas/item.py`,
+`schemas/preference.py`, `api/items.py`, `services/item_service.py`, `services/image_service.py`,
+`services/ai_service.py`, `services/recommendation_service.py`, `services/pairing_service.py`,
+`services/studio_service.py`, `utils/clothing.py`, `workers/tagging.py`, `config.py`.
+`api/images.py` needs no change.
 
 Frontend: new `components/tag-input.tsx`, `components/image-carousel.tsx`,
 `components/color-picker.tsx`; edits to `components/item-detail-dialog.tsx`,
@@ -306,9 +386,12 @@ validator) — the smallest set that fails if any of this breaks:
    `role`, and duplicate `value`s.
 6. `deduplicate_by_body_slot(..., role_overrides={"kimono": "outer_layer"})` drops a second
    outer-layer item — extend `backend/tests/test_clothing_utils.py`.
+7. `process_and_store` with a `.jpg` input returns three `.webp` paths and the files open as WebP;
+   `rotate_image("user/legacy.jpg")` still writes `legacy_medium.jpg` (not `.webp`) — the
+   regression that would orphan every pre-existing row.
 
 Run: `docker compose exec backend alembic upgrade head` then
-`docker compose exec backend pytest tests/test_items.py tests/test_clothing_utils.py tests/test_preferences.py`,
+`docker compose exec backend pytest tests/test_items.py tests/test_clothing_utils.py tests/test_preferences.py tests/test_image_undo_replace.py tests/test_background_removal.py`,
 plus `alembic downgrade -1` once to prove the migration reverses.
 
 Frontend: `npm test` (existing suite must stay green — `use-items` hook shapes change),
@@ -319,4 +402,6 @@ End-to-end, by hand: add a custom type "lingerie" with the outfit toggle **off**
 suggestion list offers it on the next item; drag-add 6 images to one item, reorder them, drop one
 onto the primary slot, confirm the wardrobe card carousel shows the new order; mark an unworn item
 washed; flip one item public and view it from a second family account via the wardrobe switcher,
-confirming a private item is absent; generate an outfit and confirm no `lingerie` item appears.
+confirming a private item is absent; generate an outfit and confirm no `lingerie` item appears;
+upload a HEIC photo and confirm the stored files are `.webp` and render, then rotate a pre-existing
+`.jpg` item and confirm its thumbnail still loads.
