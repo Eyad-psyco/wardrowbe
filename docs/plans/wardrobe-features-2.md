@@ -1,4 +1,4 @@
-# Five more wardrobe features
+# Seven more wardrobe features
 
 ## Progress
 
@@ -9,6 +9,8 @@ Tick as each lands.
 - [ ] **§3** `TagInput` upgrades — suggest on focus, floating list, counts
 - [ ] **§4** Tags on the wardrobe card + `+N` popover (new `ui/popover.tsx`)
 - [ ] **§5** Multi-select type filter, incl. bulk `select_all` parity
+- [ ] **§6** Fit / Fill toggle so card images aren't cropped
+- [ ] **§7** Hover auto-advance on multi-image cards (desktop)
 - [ ] i18n keys + `npm run i18n:check`
 - [ ] verification pass (§ Verification)
 
@@ -19,7 +21,8 @@ _(record any here as they happen)_
 ## Context
 
 The eight features in [wardrobe-features.md](wardrobe-features.md) are all shipped. Using them
-surfaced five gaps, all in the item-creation and filtering flow:
+surfaced seven gaps — five in the item-creation and filtering flow, two in how the grid shows
+images:
 
 1. **Single-item create takes one image.** Multi-image support only exists *after* the item exists
    (the detail dialog's thumbnail strip), so adding a 3-photo item is create → reopen → upload.
@@ -28,10 +31,16 @@ surfaced five gaps, all in the item-creation and filtering flow:
    row), and shows no counts.
 4. **Tags are invisible on the wardrobe grid** — you have to open an item to see what it's tagged.
 5. **The type filter is single-select** — you can look at shirts, or everything, nothing in between.
+6. **Card images are cropped.** Not a processing bug — the backend preserves aspect ratio
+   (`image.thumbnail()`, `image_service.py:96`); it's purely `object-cover` inside the card's
+   `aspect-square` box, so a portrait photo loses its top and bottom.
+7. **A multi-image card looks identical to a single-image one** until you notice the dots or reach
+   for an arrow.
 
 Decisions already made: card shows `user_tags` only (not AI `tags.features`); the overflow "+N" uses
 a real Popover; the tag suggestion list becomes a floating dropdown with counts, ordered by
-frequency.
+frequency; image fit is a localStorage toggle between `contain` and `fill`; hover cycles images on
+a timer.
 
 **One new dependency: `@radix-ui/react-popover`** + a standard shadcn `components/ui/popover.tsx`.
 Justified by two features (card tag overflow, multi-select type filter): the wardrobe `Card` is
@@ -154,6 +163,42 @@ control.
   (`lib/hooks/use-items.ts:35`); `BulkOperationParams.filters.type` → `types?: string[]`
   (`use-items.ts:667`).
 
+## 6. Fit / Fill toggle for card images
+
+Frontend only, no backend, no migration, no preference column — a per-device toggle in
+`localStorage`, defaulting to **contain** (nothing cropped, which is the ask).
+
+- [app/dashboard/wardrobe/page.tsx](../../frontend/app/dashboard/wardrobe/page.tsx):
+  `imageFit: 'contain' | 'fill'` state initialised from `localStorage['wardrobe-image-fit']`,
+  persisted in a `useEffect`, both wrapped in the same `typeof window` + `try/catch` pattern the
+  `dismissedErrors` state already uses at `:345-364` (private browsing / quota just loses the
+  preference).
+- Icon `Button` beside the filters button at `:688-700`, `variant={imageFit === 'fill' ? 'default'
+  : 'outline'}`, lucide `Crop` icon, title from i18n.
+- Passed to `ItemCard` → `ImageCarousel`'s **existing** `className` prop (`object-contain` /
+  `object-fill`), which already defaults to `object-cover`. No change to `image-carousel.tsx`.
+- Note the trade: `object-fill` **stretches** the photo to the square box (distorts), it doesn't
+  crop like today's `object-cover`. That's what was asked for; if the distortion looks wrong on
+  real photos, changing `'object-fill'` to `'object-cover'` is a one-word revert.
+- Scope: the wardrobe grid only. The detail dialog keeps `object-cover` — it's a bigger box and
+  nobody complained about it.
+
+## 7. Hover auto-advance on multi-image cards
+
+In `ItemCard` only (~12 lines); `ImageCarousel` is untouched — it already accepts controlled
+`index` / `onIndexChange`.
+
+- `const [imgIndex, setImgIndex] = useState(0)` in `ItemCard`, passed to `ImageCarousel`.
+- `onMouseEnter` / `onMouseLeave` on the existing `<div className="relative aspect-square bg-muted">`
+  at `wardrobe/page.tsx:110` set a `hovering` flag; leaving resets `imgIndex` to 0.
+- `useEffect`: when `hovering && carouselImages.length > 1`, `setInterval(() => setImgIndex(i => (i
+  + 1) % n), 1200)`, cleared on unmount/leave.
+- Guard the enter handler with `window.matchMedia('(hover: hover)').matches` so a tap on mobile
+  doesn't start a timer behind the opening detail dialog.
+- Only the active slide is mounted (deliberate — see the previous plan), so the first cycle fetches
+  each thumbnail as it appears; expect one brief flash per image on the first hover, cached after.
+  `# ponytail: no prefetch, add a hidden <link rel=prefetch> pass only if the first cycle looks bad`
+
 ---
 
 ## i18n
@@ -161,7 +206,8 @@ control.
 English only — `i18n/request.ts` falls back per namespace. New keys:
 `wardrobe.addItem.tagsLabel` + placeholder, `wardrobe.addItem.imageCountHint`,
 `wardrobe.addItem.extraImagesFailed`, `wardrobe.selectAll`, `wardrobe.selectNone`,
-`wardrobe.typesSelected`, `wardrobe.moreTags`. Run `npm run i18n:check` (note: `i18n:scan` has a
+`wardrobe.typesSelected`, `wardrobe.moreTags`, `wardrobe.imageFit.contain`, `wardrobe.imageFit.fill`.
+Run `npm run i18n:check` (note: `i18n:scan` has a
 pre-existing Windows path bug documented in the previous plan; `i18n:keys` / `i18n:parity` are the
 ones that must pass).
 
@@ -185,3 +231,8 @@ tag filter → the full tag list appears with counts, most-used first, floating 
 shifting it; a 5-tag item's card shows 2 badges + `+3` that opens on hover and on tap without
 opening the detail dialog; deselect all but two types → the grid narrows, the URL carries `types=`,
 a refresh preserves it, and "select all → delete" removes only those two types' items.
+
+For §6/§7 specifically: a portrait photo shows whole (bars top and bottom) by default, the toggle
+stretches it edge to edge, and the choice survives a reload; hovering a 3-image card cycles all
+three and snaps back to the primary on leave, while a 1-image card does nothing and a tap on a phone
+opens the dialog without starting a cycle.
