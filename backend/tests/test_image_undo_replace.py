@@ -72,7 +72,7 @@ class TestRemoveBackgroundBackup:
             result = svc.remove_background(item_with_image.image_path)
 
         backup_path = result["original_backup_path"]
-        assert backup_path.endswith("_orig.jpg")
+        assert backup_path.endswith("_orig.webp")
         backup_full = svc.get_image_path(backup_path)
         assert backup_full.exists()
         assert backup_full.read_bytes() == original_bytes
@@ -129,7 +129,7 @@ class TestRemoveBackgroundEndpointBackup:
         assert response.status_code == 200
         data = response.json()
         assert data["original_image_path"] is not None
-        assert data["original_image_path"].endswith("_orig.jpg")
+        assert data["original_image_path"].endswith("_orig.webp")
         assert ImageService().get_image_path(data["original_image_path"]).exists()
 
 
@@ -280,3 +280,55 @@ class TestDeleteCleansBackup:
         response = await client.delete(f"/api/v1/items/{item_with_image.id}", headers=auth_headers)
         assert response.status_code == 204
         assert not ImageService().get_image_path(backup_path).exists()
+
+
+class TestWebPConversion:
+    """Feature 8: uploads are stored as WebP; existing .jpg rows keep regenerating .jpg."""
+
+    @pytest.mark.asyncio
+    async def test_jpeg_upload_is_stored_as_webp(self, test_user: User):
+        svc = ImageService()
+        paths = await svc.process_and_store(
+            user_id=test_user.id, image_data=_jpeg_bytes(), original_filename="camera.jpg"
+        )
+
+        for key in ("image_path", "medium_path", "thumbnail_path"):
+            assert paths[key].endswith(".webp"), paths[key]
+            full = svc.get_image_path(paths[key])
+            assert full.exists()
+            with Image.open(full) as img:
+                assert img.format == "WEBP"
+
+    @pytest.mark.asyncio
+    async def test_legacy_jpg_regenerates_jpg_derivatives(self, test_user: User):
+        # A pre-WebP row: the paths on the item say .jpg, so rotate must keep writing
+        # .jpg or the stored medium/thumbnail paths are orphaned and 404.
+        svc = ImageService()
+        user_dir = svc.storage_path / str(test_user.id)
+        user_dir.mkdir(parents=True, exist_ok=True)
+        legacy = f"{test_user.id}/legacy.jpg"
+        (svc.storage_path / legacy).write_bytes(_jpeg_bytes())
+
+        result = svc.rotate_image(legacy)
+
+        assert result["medium_path"] == f"{test_user.id}/legacy_medium.jpg"
+        assert result["thumbnail_path"] == f"{test_user.id}/legacy_thumb.jpg"
+        for key in ("image_path", "medium_path", "thumbnail_path"):
+            full = svc.get_image_path(result[key])
+            assert full.exists()
+            with Image.open(full) as img:
+                assert img.format == "JPEG"
+
+    @pytest.mark.asyncio
+    async def test_legacy_jpg_background_backup_stays_jpg(self, test_user: User):
+        svc = ImageService()
+        user_dir = svc.storage_path / str(test_user.id)
+        user_dir.mkdir(parents=True, exist_ok=True)
+        legacy = f"{test_user.id}/legacy-bg.jpg"
+        (svc.storage_path / legacy).write_bytes(_jpeg_bytes())
+
+        with patch("app.services.background_removal.get_provider", return_value=_mock_provider()):
+            result = svc.remove_background(legacy)
+
+        assert result["original_backup_path"].endswith("_orig.jpg")
+        assert svc.get_image_path(result["original_backup_path"]).exists()

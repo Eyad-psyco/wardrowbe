@@ -71,6 +71,7 @@ async def feature_check() -> dict[str, Any]:
         features["background_removal"] = True
     except Exception:
         features["background_removal"] = False
+    features["max_item_images"] = get_settings().max_item_images
     return features
 
 

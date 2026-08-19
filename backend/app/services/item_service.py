@@ -6,9 +6,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, selectinload
+from sqlalchemy.sql import operators
 
 from app.models.item import ClothingItem, ItemHistory, ItemStatus, TaggingStatus, WashHistory
+from app.models.preference import UserPreference
+from app.models.user import User
 from app.schemas.item import DEFAULT_WASH_INTERVALS, ItemCreate, ItemFilter, ItemUpdate
+from app.utils.clothing import custom_type_wash_intervals
 
 
 class ItemService:
@@ -64,6 +68,10 @@ class ItemService:
             query = query.where(ClothingItem.favorite == filters.favorite)
         if filters.colors:
             query = query.where(ClothingItem.colors.overlap(filters.colors))
+        if filters.tags:
+            query = query.where(ClothingItem.user_tags.overlap(filters.tags))
+        if filters.is_public is not None:
+            query = query.where(ClothingItem.is_public == filters.is_public)
 
         # Archive filter
         query = query.where(ClothingItem.is_archived == filters.is_archived)
@@ -81,6 +89,7 @@ class ItemService:
                     ClothingItem.brand.ilike(search_term),
                     ClothingItem.type.ilike(search_term),
                     ClothingItem.notes.ilike(search_term),
+                    ClothingItem.user_tags.any(search_term, operator=operators.ilike_op),
                 )
             )
 
@@ -185,6 +194,7 @@ class ItemService:
         item_data: ItemCreate,
         image_paths: dict[str, str],
         upload_key: str | None = None,
+        preferences: UserPreference | None = None,
     ) -> ClothingItem:
         # Build tags dict
         tags = {}
@@ -202,6 +212,7 @@ class ItemService:
             subtype=item_data.subtype,
             tags=tags,
             colors=item_data.colors or [],
+            user_tags=item_data.user_tags or [],
             primary_color=item_data.primary_color,
             status=ItemStatus.processing,  # AI analysis will update to ready
             upload_key=upload_key,
@@ -212,13 +223,34 @@ class ItemService:
             purchase_price=item_data.purchase_price,
             favorite=item_data.favorite,
         )
+        self._apply_custom_wash_interval(item, preferences)
 
         self.db.add(item)
         await self.db.flush()
         await self.db.refresh(item, ["additional_images"])
         return item
 
-    async def update(self, item: ClothingItem, item_data: ItemUpdate) -> ClothingItem:
+    @staticmethod
+    def _apply_custom_wash_interval(item: ClothingItem, preferences: UserPreference | None) -> None:
+        """Snapshot a custom type's declared wash interval onto the item.
+
+        Materialized here rather than threaded into the four DEFAULT_WASH_INTERVALS
+        readers - one of those is a Pydantic computed field with no db access.
+        # ponytail: interval snapshotted at type-assign time; editing a type default
+        # won't retro-update existing items
+        """
+        if preferences is None or item.wash_interval is not None:
+            return
+        interval = custom_type_wash_intervals(preferences).get(item.type)
+        if interval is not None:
+            item.wash_interval = interval
+
+    async def update(
+        self,
+        item: ClothingItem,
+        item_data: ItemUpdate,
+        preferences: UserPreference | None = None,
+    ) -> ClothingItem:
         update_data = item_data.model_dump(exclude_unset=True)
 
         if "tags" in update_data and update_data["tags"]:
@@ -228,8 +260,15 @@ class ItemService:
             else:
                 update_data["tags"] = tags.model_dump(exclude_none=True)
 
+        # NOT NULL column, so an explicit null clears rather than crashes
+        if update_data.get("user_tags", "") is None:
+            update_data["user_tags"] = []
+
         for field, value in update_data.items():
             setattr(item, field, value)
+
+        if "type" in update_data:
+            self._apply_custom_wash_interval(item, preferences)
 
         if "tags" in update_data:
             attributes.flag_modified(item, "tags")
@@ -576,3 +615,41 @@ class ItemService:
             .order_by(func.count().desc())
         )
         return [{"color": row.color, "count": row.count} for row in result.all()]
+
+    async def get_tag_distribution(self, user_id: UUID) -> list[dict]:
+        result = await self.db.execute(
+            select(
+                func.unnest(ClothingItem.user_tags).label("tag"),
+                func.count().label("count"),
+            )
+            .where(
+                and_(
+                    ClothingItem.user_id == user_id,
+                    ClothingItem.is_archived == False,  # noqa: E712
+                )
+            )
+            .group_by("tag")
+            .order_by(func.count().desc())
+        )
+        return [{"tag": row.tag, "count": row.count} for row in result.all()]
+
+    async def get_public_by_id(self, item_id: UUID, family_id: UUID) -> ClothingItem | None:
+        """Look an item up by id when the viewer is not its owner.
+
+        Allowed only when the item is public, unarchived, and its owner shares the
+        viewer's family - the deep-link (?item=<id>) path for a shared wardrobe.
+        """
+        result = await self.db.execute(
+            select(ClothingItem)
+            .join(ClothingItem.user)
+            .where(
+                and_(
+                    ClothingItem.id == item_id,
+                    ClothingItem.is_public.is_(True),
+                    ClothingItem.is_archived.is_(False),
+                    User.family_id == family_id,
+                )
+            )
+            .options(selectinload(ClothingItem.additional_images))
+        )
+        return result.scalar_one_or_none()

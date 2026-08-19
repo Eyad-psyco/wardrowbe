@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Plus, Search, Heart, Grid3X3, Loader2, AlertCircle, RefreshCw, Droplets, ArrowUpDown, SlidersHorizontal, X } from 'lucide-react';
+import { Plus, Search, Heart, Grid3X3, Loader2, AlertCircle, RefreshCw, Droplets, ArrowUpDown, SlidersHorizontal, X, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,9 +24,13 @@ import {
 } from '@/components/ui/tooltip';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { ItemDetailDialog } from '@/components/item-detail-dialog';
+import { ImageCarousel } from '@/components/image-carousel';
+import { TagInput } from '@/components/tag-input';
 import { BulkActionToolbar, BulkSelection } from '@/components/bulk-action-toolbar';
-import { useItems, useItem, useItemTypes, useReanalyzeItem, useCancelAnalysis, useBulkDeleteItems, useBulkReanalyzeItems, useTaggingProgress, BulkOperationParams, tagProcessingLabel, formatAnalyzingElapsed } from '@/lib/hooks/use-items';
+import { Pagination } from '@/components/pagination';
+import { useItems, useItem, useItemTypes, useItemTags, useReanalyzeItem, useCancelAnalysis, useBulkDeleteItems, useBulkReanalyzeItems, useTaggingProgress, BulkOperationParams, tagProcessingLabel, formatAnalyzingElapsed } from '@/lib/hooks/use-items';
 import { useUserProfile } from '@/lib/hooks/use-user';
+import { useFamily } from '@/lib/hooks/use-family';
 import { Item } from '@/lib/types';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
 import { toast } from 'sonner';
@@ -62,6 +65,7 @@ function ItemCard({
   onDismissError,
   errorDismissed,
   userTimezone,
+  readOnly = false,
 }: {
   item: Item;
   selected: boolean;
@@ -72,13 +76,25 @@ function ItemCard({
   onDismissError?: (id: string) => void;
   errorDismissed?: boolean;
   userTimezone: string;
+  readOnly?: boolean;
 }) {
   const t = useTranslations('wardrobe');
   const tc = useTranslations('common');
   const clothingColors = useClothingColors();
-  const colorInfo = clothingColors.find((c) => c.value === item.primary_color);
-  const isProcessing = item.status === 'processing';
-  const isError = item.status === 'error' && !errorDismissed;
+  const itemColors = (item.colors?.length ? item.colors : [item.primary_color])
+    .filter(Boolean)
+    .map((c) => clothingColors.find((cc) => cc.value === c))
+    .filter((c): c is (typeof clothingColors)[number] => !!c);
+  const carouselImages = [
+    item.thumbnail_url && { id: 'primary', url: item.thumbnail_url },
+    ...(item.additional_images || []).map((img) => ({
+      id: img.id,
+      url: img.thumbnail_url || img.image_url,
+    })),
+  ].filter(Boolean) as Array<{ id: string; url: string }>;
+  // Overlays are owner-only actions; a shared wardrobe never shows processing/error state
+  const isProcessing = !readOnly && item.status === 'processing';
+  const isError = !readOnly && item.status === 'error' && !errorDismissed;
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -92,12 +108,10 @@ function ItemCard({
       onClick={onClick}
     >
       <div className="relative aspect-square bg-muted">
-        {item.thumbnail_url ? (
-          <Image
-            src={item.thumbnail_url}
+        {carouselImages.length > 0 ? (
+          <ImageCarousel
+            images={carouselImages}
             alt={item.name || item.type}
-            fill
-            className="object-cover"
             sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
           />
         ) : (
@@ -106,23 +120,28 @@ function ItemCard({
           </div>
         )}
         {/* Checkbox in top-left */}
-        <div
-          className={`absolute top-2 left-2 z-10 transition-opacity ${
-            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-          onClick={handleCheckboxClick}
-        >
-          <Checkbox
-            checked={selected}
-            onCheckedChange={(checked) => onSelect(item.id, checked === true)}
-            className="bg-background/80 backdrop-blur-sm"
-          />
-        </div>
-        {item.favorite && (
-          <div className="absolute top-2 right-2 z-10">
-            <Heart className="h-4 w-4 fill-red-500 text-red-500" />
+        {!readOnly && (
+          <div
+            className={`absolute top-2 left-2 z-10 transition-opacity ${
+              selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
+            onClick={handleCheckboxClick}
+          >
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onSelect(item.id, checked === true)}
+              className="bg-background/80 backdrop-blur-sm"
+            />
           </div>
         )}
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+          {item.is_public && !readOnly && (
+            <span className="bg-background/80 backdrop-blur-sm rounded-full p-0.5" title={t('shared.publicBadge')}>
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            </span>
+          )}
+          {item.favorite && <Heart className="h-4 w-4 fill-red-500 text-red-500" />}
+        </div>
         {item.needs_wash && (
           <div className="absolute bottom-2 right-2 z-10">
             <div className="bg-amber-500/90 text-white rounded-full p-1" title={t('needsWash')}>
@@ -211,19 +230,23 @@ function ItemCard({
               {item.tags?.logprobs_confidence != null && ` · ${t('ai.confident', { percent: Math.round(item.tags.logprobs_confidence * 100) })}`}
             </p>
           </div>
-          {colorInfo && (
+          {itemColors.length > 0 && (
             <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className="w-4 h-4 rounded-full border shrink-0"
-                    style={{ backgroundColor: colorInfo.hex }}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{colorInfo.name}</p>
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex -space-x-1 shrink-0">
+                {itemColors.slice(0, 3).map((c) => (
+                  <Tooltip key={c.value}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className="w-4 h-4 rounded-full border shrink-0"
+                        style={{ backgroundColor: c.hex }}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{c.name}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
             </TooltipProvider>
           )}
         </div>
@@ -305,6 +328,11 @@ export default function WardrobePage() {
   const [favoriteFilter, setFavoriteFilter] = useState<boolean | undefined>(() =>
     searchParams.get('favorite') === 'true' ? true : undefined
   );
+  const [tagFilter, setTagFilter] = useState<string[]>(() => {
+    const raw = searchParams.get('tags');
+    return raw ? raw.split(',').filter(Boolean) : [];
+  });
+  const [ownerId, setOwnerId] = useState<string>(() => searchParams.get('owner') ?? '');
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(() => {
     const raw = Number(searchParams.get('page'));
@@ -352,6 +380,8 @@ export default function WardrobePage() {
     if (sortIndex !== 0) params.set('sort', String(sortIndex)); else params.delete('sort');
     if (needsWash) params.set('needsWash', 'true'); else params.delete('needsWash');
     if (favoriteFilter) params.set('favorite', 'true'); else params.delete('favorite');
+    if (tagFilter.length) params.set('tags', tagFilter.join(',')); else params.delete('tags');
+    if (ownerId) params.set('owner', ownerId); else params.delete('owner');
     if (page !== 1) params.set('page', String(page)); else params.delete('page');
     if (pageSize !== 20) params.set('pageSize', String(pageSize)); else params.delete('pageSize');
 
@@ -359,15 +389,21 @@ export default function WardrobePage() {
     if (next !== searchParams.toString()) {
       router.replace(next ? `/dashboard/wardrobe?${next}` : '/dashboard/wardrobe', { scroll: false });
     }
-  }, [search, typeFilter, sortIndex, needsWash, favoriteFilter, page, pageSize, searchParams, router]);
+  }, [search, typeFilter, sortIndex, needsWash, favoriteFilter, tagFilter, ownerId, page, pageSize, searchParams, router]);
 
   const sortOption = SORT_OPTIONS[sortIndex];
+
+  const { data: family } = useFamily();
+  const familyMembers = family?.members || [];
+  const isSharedView = !!ownerId;
 
   const filters = {
     search: search || undefined,
     type: typeFilter !== 'all' ? typeFilter : undefined,
     needs_wash: needsWash,
     favorite: favoriteFilter,
+    tags: tagFilter.length ? tagFilter : undefined,
+    user_id: ownerId || undefined,
     is_archived: false,
     sort_by: sortOption.value,
     sort_order: sortOption.order,
@@ -377,12 +413,14 @@ export default function WardrobePage() {
     needsWash !== undefined,
     favoriteFilter !== undefined,
     typeFilter !== 'all',
+    tagFilter.length > 0,
   ].filter(Boolean).length;
 
   // Fetch items with automatic polling (faster when items are processing)
   const { data, isLoading, error } = useItems(filters, page, pageSize);
   const { data: taggingProgress } = useTaggingProgress();
   const { data: itemTypes } = useItemTypes();
+  const { data: tagDistribution } = useItemTags();
   const reanalyze = useReanalyzeItem();
   const cancelAnalysis = useCancelAnalysis();
   const bulkDelete = useBulkDeleteItems();
@@ -411,7 +449,7 @@ export default function WardrobePage() {
   // Clear selection when filters change (but not page - allow cross-page selection)
   useEffect(() => {
     setSelection({ mode: 'none', selectedIds: new Set(), excludedIds: new Set() });
-  }, [search, typeFilter, needsWash, favoriteFilter, sortIndex]);
+  }, [search, typeFilter, needsWash, favoriteFilter, tagFilter, ownerId, sortIndex]);
 
   const handleRetry = (itemId: string) => {
     reanalyze.mutate(itemId, {
@@ -550,14 +588,16 @@ export default function WardrobePage() {
         <div className="min-w-0">
           <div className="flex items-center justify-between sm:justify-start gap-3">
             <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
-            <Button onClick={() => setAddDialogOpen(true)} className="sm:hidden" size="sm">
-              <Plus className="h-4 w-4" />
-            </Button>
+            {!isSharedView && (
+              <Button onClick={() => setAddDialogOpen(true)} className="sm:hidden" size="sm">
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             {t('itemCount', { count: total })}
           </p>
-          {(queuedCount > 0 || analyzingCount > 0 || errorCount > 0) && (
+          {!isSharedView && (queuedCount > 0 || analyzingCount > 0 || errorCount > 0) && (
             <div className="flex items-center gap-2 mt-2">
               {analyzingCount > 0 && (
                 <Badge variant="secondary" className="gap-1 text-xs">
@@ -581,10 +621,33 @@ export default function WardrobePage() {
             </div>
           )}
         </div>
-        <Button onClick={() => setAddDialogOpen(true)} className="hidden sm:flex">
-          <Plus className="mr-2 h-4 w-4" />
-          {t('actions.addItem')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Hidden entirely when the user has no family - nobody to share with */}
+          {familyMembers.length > 1 && (
+            <Select value={ownerId || 'me'} onValueChange={(v) => { setOwnerId(v === 'me' ? '' : v); setPage(1); }}>
+              <SelectTrigger className="w-[180px]">
+                <Users className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="me">{t('shared.myWardrobe')}</SelectItem>
+                {familyMembers
+                  .filter((m) => m.id !== userProfile?.id)
+                  .map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {t('shared.memberWardrobe', { name: m.display_name })}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
+          {!isSharedView && (
+            <Button onClick={() => setAddDialogOpen(true)} className="hidden sm:flex">
+              <Plus className="mr-2 h-4 w-4" />
+              {t('actions.addItem')}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -706,6 +769,18 @@ export default function WardrobePage() {
               {t('favorites')}
             </Button>
 
+            <div className="w-full sm:w-[220px]">
+              <TagInput
+                value={tagFilter}
+                onChange={(tags) => {
+                  setTagFilter(tags);
+                  setPage(1);
+                }}
+                suggestions={(tagDistribution || []).map((entry) => entry.tag)}
+                placeholder={t('filterByTag')}
+              />
+            </div>
+
             {activeFilterCount > 0 && (
               <Button
                 variant="ghost"
@@ -715,6 +790,7 @@ export default function WardrobePage() {
                   setTypeFilter('all');
                   setNeedsWash(undefined);
                   setFavoriteFilter(undefined);
+                  setTagFilter([]);
                   setPage(1);
                 }}
               >
@@ -746,7 +822,7 @@ export default function WardrobePage() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        search || typeFilter !== 'all' || needsWash !== undefined || favoriteFilter !== undefined ? (
+        search || typeFilter !== 'all' || needsWash !== undefined || favoriteFilter !== undefined || tagFilter.length > 0 || isSharedView ? (
           <div className="text-center py-8">
             <p className="text-muted-foreground">
               {t('errors.noItemsFound')}
@@ -759,6 +835,7 @@ export default function WardrobePage() {
                 setTypeFilter('all');
                 setNeedsWash(undefined);
                 setFavoriteFilter(undefined);
+                setTagFilter([]);
                 setPage(1);
               }}
             >
@@ -781,19 +858,20 @@ export default function WardrobePage() {
                 item={item}
                 selected={isSelected}
                 onSelect={handleSelect}
-                onRetry={handleRetry}
-                onCancelAnalysis={handleCancelAnalysis}
+                onRetry={isSharedView ? undefined : handleRetry}
+                onCancelAnalysis={isSharedView ? undefined : handleCancelAnalysis}
                 onClick={() => setDetailItemId(item.id)}
-                onDismissError={handleDismissError}
+                onDismissError={isSharedView ? undefined : handleDismissError}
                 errorDismissed={dismissedErrors.has(`${item.id}:${item.updated_at}`)}
                 userTimezone={userTimezone}
+                readOnly={isSharedView}
               />
             );
           })}
         </div>
       )}
 
-      <BulkActionToolbar
+      {!isSharedView && <BulkActionToolbar
         selection={selection}
         totalItems={total}
         pageItems={items.length}
@@ -808,11 +886,16 @@ export default function WardrobePage() {
         page={page}
         pageSize={pageSize}
         onPageChange={handlePageChange}
-      />
+      />}
+      {/* Shared view has no bulk actions, so it needs the plain pager instead */}
+      {isSharedView && (
+        <Pagination page={page} total={total} pageSize={pageSize} onPageChange={handlePageChange} />
+      )}
 
       <AddItemDialog open={addDialogOpen} onOpenChange={setAddDialogOpen} />
       <ItemDetailDialog
         item={detailItem}
+        readOnly={isSharedView}
         open={!!detailItemId}
         onOpenChange={(open) => {
           if (!open) {

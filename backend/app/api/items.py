@@ -17,6 +17,7 @@ from app.database import get_db
 from app.models.item import ClothingItem, ItemStatus, TaggedBy, TaggingStatus
 from app.models.user import User
 from app.schemas.item import (
+    AddImagesResponse,
     ArchiveRequest,
     BulkAnalyzeRequest,
     BulkAnalyzeResponse,
@@ -57,6 +58,37 @@ def _has_tag_content(field: str, value: Any) -> bool:
     return value not in _EMPTY_TAG_VALUES
 
 
+async def _reloaded_response(
+    item_service: ItemService, item_id: UUID, user_id: UUID
+) -> ItemResponse:
+    """Re-read an item after a write and serialize it.
+
+    Not db.refresh(item): refresh expires the eager-loaded additional_images
+    collection, and ItemResponse touches it synchronously, so the lazy load raises
+    MissingGreenlet and the write succeeds but the response 422s. get_by_id
+    re-selects with selectinload and repopulates server-side columns (updated_at)
+    in the same round trip.
+    """
+    item = await item_service.get_by_id(item_id, user_id)
+    return ItemResponse.model_validate(item)
+
+
+async def _require_family_member(db: AsyncSession, viewer: User, target_id: UUID) -> UUID:
+    """Return target_id if the viewer shares a family with it, else 404.
+
+    404 rather than 403 on purpose - a 403 would confirm the user exists.
+    """
+    if viewer.family_id is not None:
+        result = await db.execute(select(User.family_id).where(User.id == target_id))
+        target_family_id = result.scalar_one_or_none()
+        if target_family_id is not None and target_family_id == viewer.family_id:
+            return target_id
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Wardrobe not found",
+    )
+
+
 @router.get("", response_model=ItemListResponse)
 async def list_items(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -66,6 +98,7 @@ async def list_items(
     type: str | None = None,
     subtype: str | None = None,
     colors: str | None = None,
+    tags: str | None = None,
     status: str | None = None,
     tagging_status: str | None = None,
     favorite: bool | None = None,
@@ -74,13 +107,16 @@ async def list_items(
     search: str | None = None,
     sort_by: str | None = None,
     sort_order: str = "desc",
+    user_id: UUID | None = None,
 ) -> ItemListResponse:
     color_list = colors.split(",") if colors else None
+    tag_list = tags.split(",") if tags else None
 
     filters = ItemFilter(
         type=type,
         subtype=subtype,
         colors=color_list,
+        tags=tag_list,
         status=status,
         tagging_status=tagging_status,
         favorite=favorite,
@@ -91,9 +127,16 @@ async def list_items(
         sort_order=sort_order,
     )
 
+    owner_id = current_user.id
+    if user_id is not None and user_id != current_user.id:
+        owner_id = await _require_family_member(db, current_user, user_id)
+        # Another member's wardrobe shows only what they chose to share.
+        filters.is_public = True
+        filters.is_archived = False
+
     item_service = ItemService(db)
     items, total = await item_service.get_list(
-        user_id=current_user.id,
+        user_id=owner_id,
         filters=filters,
         page=page,
         page_size=page_size,
@@ -183,6 +226,7 @@ async def create_item(
         user_id=current_user.id,
         item_data=item_data,
         image_paths=image_paths,
+        preferences=current_user.preferences,
     )
 
     do_auto_tag = settings.effective_ai_vision_enabled and not skip_ai
@@ -670,6 +714,15 @@ async def get_color_distribution(
     return await item_service.get_color_distribution(current_user.id)
 
 
+@router.get("/tags")
+async def get_tag_distribution(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[dict]:
+    item_service = ItemService(db)
+    return await item_service.get_tag_distribution(current_user.id)
+
+
 @router.get("/tagging-progress", response_model=TaggingProgressResponse)
 async def get_tagging_progress(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -719,6 +772,11 @@ async def get_item(
     item_service = ItemService(db)
     item = await item_service.get_by_id(item_id, current_user.id)
 
+    # Owner-scoped miss falls back to the shared-wardrobe read, so a ?item=<id>
+    # deep link and useItem() both work in another family member's wardrobe.
+    if not item and current_user.family_id is not None:
+        item = await item_service.get_public_by_id(item_id, current_user.family_id)
+
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -750,7 +808,7 @@ async def update_item(
         item.tagged_by = TaggedBy.manual
         item.tagged_at = datetime.now(UTC)
 
-    item = await item_service.update(item, item_data)
+    item = await item_service.update(item, item_data, preferences=current_user.preferences)
     return ItemResponse.model_validate(item)
 
 
@@ -854,9 +912,7 @@ async def log_item_wear(
         notes=request.notes,
     )
 
-    # Refresh to get updated wear_count
-    await db.refresh(item)
-    return ItemResponse.model_validate(item)
+    return await _reloaded_response(item_service, item_id, current_user.id)
 
 
 @router.get("/{item_id}/history")
@@ -960,12 +1016,6 @@ async def log_item_wash(
             detail="Item not found",
         )
 
-    if item.wears_since_wash == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Item is already clean (0 wears since last wash)",
-        )
-
     # Use user's timezone to determine today if washed_at not provided
     if request.washed_at is None:
         try:
@@ -983,8 +1033,7 @@ async def log_item_wash(
         notes=request.notes,
     )
 
-    await db.refresh(item)
-    return ItemResponse.model_validate(item)
+    return await _reloaded_response(item_service, item_id, current_user.id)
 
 
 @router.get("/{item_id}/wash-history", response_model=list[WashHistoryResponse])
@@ -1205,8 +1254,7 @@ async def rotate_item_image(
         image_service = ImageService()
         image_service.rotate_image(item.image_path, direction)
         await db.commit()
-        await db.refresh(item)
-        return ItemResponse.model_validate(item)
+        return await _reloaded_response(item_service, item_id, current_user.id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1387,14 +1435,15 @@ async def replace_item_image(
 
 
 @router.post(
-    "/{item_id}/images", response_model=ItemImageResponse, status_code=status.HTTP_201_CREATED
+    "/{item_id}/images", response_model=AddImagesResponse, status_code=status.HTTP_201_CREATED
 )
-async def add_item_image(
+async def add_item_images(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-    image: UploadFile = File(...),
-) -> ItemImageResponse:
+    images: list[UploadFile] = File(...),
+) -> AddImagesResponse:
+    # ponytail: non-durable, reuse lib/upload-queue.ts if losing a batch matters
     from app.models.item import ItemImage
 
     item_service = ItemService(db)
@@ -1406,52 +1455,56 @@ async def add_item_image(
             detail="Item not found",
         )
 
-    # Check max images limit
-    from sqlalchemy import func, select
-
     count_result = await db.execute(select(func.count()).where(ItemImage.item_id == item_id))
     current_count = count_result.scalar() or 0
-    if current_count >= 4:
+    cap = settings.max_item_images
+    if current_count + len(images) > cap:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Maximum of 4 additional images per item",
+            detail=f"Maximum of {cap} additional images per item",
         )
 
-    # Process image
     image_service_inst = ImageService()
-    content = await image.read()
-    content_type = image.content_type or "application/octet-stream"
+    stored: list[ItemImage] = []
+    errors: list[str] = []
 
-    if not image_service_inst.validate_image(content, content_type):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid image file. Supported formats: JPEG, PNG, WebP, HEIC",
+    for image in images:
+        filename = image.filename or "upload.jpg"
+        content = await image.read()
+        content_type = image.content_type or "application/octet-stream"
+
+        if not image_service_inst.validate_image(content, content_type):
+            errors.append(f"{filename}: unsupported or corrupt image")
+            continue
+
+        try:
+            image_paths = await image_service_inst.process_and_store(
+                user_id=current_user.id,
+                image_data=content,
+                original_filename=filename,
+            )
+        except ValueError as e:
+            errors.append(f"{filename}: {e}")
+            continue
+
+        item_image = ItemImage(
+            item_id=item_id,
+            image_path=image_paths["image_path"],
+            thumbnail_path=image_paths.get("thumbnail_path"),
+            medium_path=image_paths.get("medium_path"),
+            position=current_count + len(stored),
         )
+        db.add(item_image)
+        stored.append(item_image)
 
-    try:
-        image_paths = await image_service_inst.process_and_store(
-            user_id=current_user.id,
-            image_data=content,
-            original_filename=image.filename or "upload.jpg",
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from None
-
-    item_image = ItemImage(
-        item_id=item_id,
-        image_path=image_paths["image_path"],
-        thumbnail_path=image_paths.get("thumbnail_path"),
-        medium_path=image_paths.get("medium_path"),
-        position=current_count,
-    )
-    db.add(item_image)
     await db.flush()
-    await db.refresh(item_image)
+    for item_image in stored:
+        await db.refresh(item_image)
 
-    return ItemImageResponse.model_validate(item_image)
+    return AddImagesResponse(
+        images=[ItemImageResponse.model_validate(img) for img in stored],
+        errors=errors,
+    )
 
 
 @router.delete("/{item_id}/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1580,5 +1633,4 @@ async def set_primary_image(
     item_image.medium_path = old_primary["medium_path"]
 
     await db.flush()
-    await db.refresh(item)
-    return ItemResponse.model_validate(item)
+    return await _reloaded_response(item_service, item_id, current_user.id)

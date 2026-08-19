@@ -22,6 +22,21 @@ SIZES = {
     "original": (2400, 2400),
 }
 
+# Output format per stored extension. Derivatives are regenerated in whatever
+# format their existing path already says, so a legacy .jpg item keeps writing .jpg
+# and never orphans the paths stored on its row.
+PIL_FORMAT = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
+
+
+def _format_for_ext(ext: str) -> str:
+    return PIL_FORMAT.get(ext.lower(), "JPEG")
+
+
+def _output_ext() -> str:
+    ext = f".{settings.image_format.lower().lstrip('.')}"
+    return ext if ext in PIL_FORMAT else ".webp"
+
+
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 ALLOWED_MIME_TYPES = {
     "image/jpeg",
@@ -64,6 +79,7 @@ class ImageService:
         image: Image.Image,
         max_size: tuple[int, int],
         quality: int = 92,
+        fmt: str = "WEBP",
     ) -> bytes:
         """Resize image maintaining aspect ratio."""
         # Convert to RGB if necessary (handles RGBA, P mode, etc.)
@@ -79,9 +95,11 @@ class ImageService:
         # Resize maintaining aspect ratio
         image.thumbnail(max_size, Image.Resampling.LANCZOS)
 
-        # Save to bytes
+        # Save to bytes. `optimize` is a no-op for WebP; harmless.
+        # ponytail: quality numbers carried over from JPEG, tune against real photos
+        # if size matters
         output = BytesIO()
-        image.save(output, format="JPEG", quality=quality, optimize=True)
+        image.save(output, format=fmt, quality=quality, optimize=True)
         return output.getvalue()
 
     async def process_and_store(
@@ -93,11 +111,12 @@ class ImageService:
         """
         Process an uploaded image and store all sizes.
 
-        Returns dict with paths for each size:
+        Input stays JPEG/PNG/WebP/HEIC; output is settings.image_format (WebP by
+        default) for every size:
         {
-            "original": "user_id/20240116_123456_abc123.jpg",
-            "medium": "user_id/20240116_123456_abc123_medium.jpg",
-            "thumbnail": "user_id/20240116_123456_abc123_thumb.jpg",
+            "original": "user_id/20240116_123456_abc123.webp",
+            "medium": "user_id/20240116_123456_abc123_medium.webp",
+            "thumbnail": "user_id/20240116_123456_abc123_thumb.webp",
         }
         """
         # Validate file extension
@@ -112,7 +131,9 @@ class ImageService:
             image = Image.open(BytesIO(image_data))
 
         # Generate base filename
-        base_filename = self._generate_filename(".jpg")
+        out_ext = _output_ext()
+        out_format = _format_for_ext(out_ext)
+        base_filename = self._generate_filename(out_ext)
         base_name = base_filename.rsplit(".", 1)[0]
 
         user_path = self._get_user_path(user_id)
@@ -130,12 +151,14 @@ class ImageService:
                 suffix = "_thumb"
                 quality = 88  # Good quality for thumbnails
 
-            filename = f"{base_name}{suffix}.jpg"
+            filename = f"{base_name}{suffix}{out_ext}"
             file_path = user_path / filename
 
             # For original, preserve as much quality as possible
             # For others, resize with appropriate quality
-            resized_data = self._resize_image(image.copy(), max_size, quality=quality)
+            resized_data = self._resize_image(
+                image.copy(), max_size, quality=quality, fmt=out_format
+            )
             file_path.write_bytes(resized_data)
 
             # Store relative path
@@ -236,9 +259,15 @@ class ImageService:
         return ImageService.hash_distance(hash1, hash2) <= threshold
 
     def _save_all_sizes(self, image: Image.Image, image_path: str) -> dict[str, str]:
-        base_path = image_path.rsplit(".", 1)[0]
-        medium_path = f"{base_path}_medium.jpg"
-        thumb_path = f"{base_path}_thumb.jpg"
+        # Format comes from the path already on the row, NOT from config: rotate,
+        # remove_background and restore_original all overwrite files whose paths are
+        # already stored, so writing foo_medium.webp while the DB still says
+        # foo_medium.jpg would orphan the row and 404 the image.
+        base_path, _, ext = image_path.rpartition(".")
+        ext = f".{ext}"
+        out_format = _format_for_ext(ext)
+        medium_path = f"{base_path}_medium{ext}"
+        thumb_path = f"{base_path}_thumb{ext}"
 
         for size_name, max_size in SIZES.items():
             if size_name == "original":
@@ -255,7 +284,7 @@ class ImageService:
             img_copy.thumbnail(max_size, Image.Resampling.LANCZOS)
 
             output = BytesIO()
-            img_copy.save(output, format="JPEG", quality=quality, optimize=True)
+            img_copy.save(output, format=out_format, quality=quality, optimize=True)
             file_path.write_bytes(output.getvalue())
 
         return {
@@ -269,13 +298,15 @@ class ImageService:
         image_path: str,
         bg_color: tuple[int, int, int] = (255, 255, 255),
     ) -> dict[str, str]:
-        base_path = image_path.rsplit(".", 1)[0]
+        base_path, _, ext = image_path.rpartition(".")
         original_full = self.storage_path / image_path
 
         if not original_full.exists():
             raise ValueError(f"Image not found: {image_path}")
 
-        backup_path = f"{base_path}_orig.jpg"
+        # Same reasoning as _save_all_sizes: the backup extension follows the stored
+        # path, so a legacy .jpg item's backup stays readable.
+        backup_path = f"{base_path}_orig.{ext}"
         backup_full = self.storage_path / backup_path
         # First removal wins: a second removal must not overwrite the true
         # original with an already-processed image

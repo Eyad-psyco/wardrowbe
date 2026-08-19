@@ -70,6 +70,9 @@ class ClothingItem(Base):
     # Tags and attributes
     tags: Mapped[dict] = mapped_column(JSONB, default=dict)
     colors: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # Free-text tags the user typed, kept apart from `tags` (the AI attribute blob)
+    # so a user tag never marks an item as AI-tagged.
+    user_tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     primary_color: Mapped[str | None] = mapped_column(String(50))
     pattern: Mapped[str | None] = mapped_column(String(50))
     material: Mapped[str | None] = mapped_column(String(50))
@@ -124,6 +127,9 @@ class ClothingItem(Base):
     purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Visibility - private by default, opt-in per item for same-family viewers
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Lifecycle
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)

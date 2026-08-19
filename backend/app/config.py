@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     storage_path: str = Field(default="/data/wardrobe")
     max_upload_size_mb: int = Field(default=10)
     max_bulk_upload_count: int = Field(default=20)
+    max_item_images: int = Field(default=20)
 
     # Background removal
     bg_removal_provider: str = Field(default="rembg")  # "rembg" or "http"
@@ -98,6 +99,9 @@ class Settings(BaseSettings):
     medium_size: int = 800
     original_max_size: int = 2400
     image_quality: int = 90
+    # Output format for every stored derivative. A switch rather than a hardcode so
+    # a deployment can go back to JPEG without a code change.
+    image_format: str = Field(default="webp")
 
     @property
     def effective_ai_vision_enabled(self) -> bool:

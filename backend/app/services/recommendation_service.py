@@ -31,7 +31,11 @@ from app.services.weather_service import (
     WeatherService,
     WeatherServiceError,
 )
-from app.utils.clothing import deduplicate_by_body_slot
+from app.utils.clothing import (
+    custom_type_roles,
+    deduplicate_by_body_slot,
+    outfit_excluded_types,
+)
 from app.utils.prompts import load_prompt
 from app.utils.timezone import get_user_today
 
@@ -105,6 +109,11 @@ class RecommendationService:
 
         items = [i for i in items if not i.needs_wash]
         items = [i for i in items if i.type and i.type != "unknown"]
+
+        # Custom types with no body slot (the lingerie case) never enter an outfit
+        excluded_types = outfit_excluded_types(preferences)
+        if excluded_types:
+            items = [i for i in items if i.type not in excluded_types]
 
         if exclude_items:
             exclude_set = set(exclude_items)
@@ -579,7 +588,9 @@ class RecommendationService:
             select(ClothingItem.id, ClothingItem.type).where(ClothingItem.id.in_(valid_ids))
         )
         item_type_map = {row.id: (row.type or "").lower() for row in items_result}
-        valid_ids = deduplicate_by_body_slot(valid_ids, item_type_map)
+        valid_ids = deduplicate_by_body_slot(
+            valid_ids, item_type_map, custom_type_roles(user.preferences)
+        )
 
         reasoning = outfit_data.get("headline") or outfit_data.get("reasoning")
         style_notes = outfit_data.get("styling_tip") or outfit_data.get("style_notes")

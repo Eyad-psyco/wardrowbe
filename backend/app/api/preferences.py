@@ -55,6 +55,9 @@ def _build_preference_response(preferences) -> PreferenceResponse:
         if preferences.variety_level is not None
         else "moderate",
         ai_endpoints=preferences.ai_endpoints if preferences.ai_endpoints is not None else [],
+        custom_item_types=preferences.custom_item_types
+        if preferences.custom_item_types is not None
+        else [],
     )
 
 

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from app.utils.signed_urls import sign_image_url
 
@@ -27,6 +27,26 @@ DEFAULT_WASH_INTERVALS: dict[str, int] = {
     "accessories": 20,
     "other": 3,
 }
+
+
+MAX_USER_TAGS = 20
+MAX_USER_TAG_LENGTH = 30
+
+
+def normalize_user_tags(tags: list[str] | None) -> list[str] | None:
+    """Lowercase, trim, drop empties, dedupe (order-preserving) and cap.
+
+    Shared by ItemCreate/ItemUpdate so both write paths store the same shape and a
+    tag filter can match on exact equality rather than guessing at casing.
+    """
+    if tags is None:
+        return None
+    seen: list[str] = []
+    for raw in tags:
+        tag = str(raw).strip().lower()[:MAX_USER_TAG_LENGTH]
+        if tag and tag not in seen:
+            seen.append(tag)
+    return seen[:MAX_USER_TAGS]
 
 
 class ItemTags(BaseModel):
@@ -55,6 +75,12 @@ class ItemCreate(ItemBase):
     tags: ItemTags | None = None
     colors: list[str] | None = None
     primary_color: str | None = None
+    user_tags: list[str] | None = None
+
+    @field_validator("user_tags")
+    @classmethod
+    def _clean_user_tags(cls, v: list[str] | None) -> list[str] | None:
+        return normalize_user_tags(v)
 
 
 class ItemUpdate(BaseModel):
@@ -69,7 +95,14 @@ class ItemUpdate(BaseModel):
     tags: ItemTags | None = None
     colors: list[str] | None = None
     primary_color: str | None = None
+    user_tags: list[str] | None = None
     wash_interval: int | None = None
+    is_public: bool | None = None
+
+    @field_validator("user_tags")
+    @classmethod
+    def _clean_user_tags(cls, v: list[str] | None) -> list[str] | None:
+        return normalize_user_tags(v)
 
 
 class ItemResponse(ItemBase):
@@ -102,6 +135,7 @@ class ItemResponse(ItemBase):
     original_image_path: str | None = None
     tags: dict = Field(default_factory=dict)
     colors: list[str] = Field(default_factory=list)
+    user_tags: list[str] = Field(default_factory=list)
     primary_color: str | None = None
     pattern: str | None = None
     material: str | None = None
@@ -127,6 +161,7 @@ class ItemResponse(ItemBase):
     wash_interval: int | None = None
     needs_wash: bool = False
     additional_images: list["ItemImageResponse"] = Field(default_factory=list)
+    is_public: bool = False
     is_archived: bool = False
     archived_at: datetime | None = None
     archive_reason: str | None = None
@@ -181,10 +216,12 @@ class ItemFilter(BaseModel):
     type: str | None = None
     subtype: str | None = None
     colors: list[str] | None = None
+    tags: list[str] | None = None
     status: str | None = None
     tagging_status: str | None = None
     favorite: bool | None = None
     needs_wash: bool | None = None
+    is_public: bool | None = None
     is_archived: bool = False
     search: str | None = None
     sort_by: str | None = None
@@ -299,6 +336,13 @@ class ItemImageResponse(BaseModel):
         if self.medium_path:
             return sign_image_url(self.medium_path)
         return None
+
+
+class AddImagesResponse(BaseModel):
+    # Per-file outcome rather than all-or-nothing: one corrupt file in twenty must
+    # not discard the batch, and must not be silently swallowed either.
+    images: list[ItemImageResponse] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 class ReorderImagesRequest(BaseModel):

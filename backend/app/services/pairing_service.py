@@ -9,9 +9,14 @@ from sqlalchemy.orm import selectinload
 
 from app.models.item import ClothingItem, ItemStatus
 from app.models.outfit import FamilyOutfitRating, Outfit, OutfitItem, OutfitSource, OutfitStatus
+from app.models.preference import UserPreference
 from app.models.user import User
 from app.services.ai_service import AIResponseTruncatedError, AIService, require_internal_ai
-from app.utils.clothing import deduplicate_by_body_slot
+from app.utils.clothing import (
+    custom_type_roles,
+    deduplicate_by_body_slot,
+    outfit_excluded_types,
+)
 from app.utils.prompts import load_prompt
 from app.utils.timezone import get_user_today
 
@@ -59,7 +64,17 @@ class PairingService:
             )
         )
         result = await self.db.execute(query)
-        return list(result.scalars().all())
+        items = list(result.scalars().all())
+
+        # Custom types with no body slot (the lingerie case) never enter an outfit.
+        # Note this function honours neither needs_wash nor excluded_item_ids today;
+        # not fixing that here, just not copying the omission.
+        # Fetched rather than read off user.preferences: unloaded, that relationship
+        # raises MissingGreenlet. db.get hits the identity map when already loaded.
+        excluded_types = outfit_excluded_types(await self.db.get(UserPreference, user.id))
+        if excluded_types:
+            items = [i for i in items if i.type not in excluded_types]
+        return items
 
     def _format_item_description(self, item: ClothingItem) -> str:
         parts = []
@@ -266,7 +281,9 @@ class PairingService:
                 valid_ids.insert(0, source_item.id)
 
             # Deduplicate by body slot (e.g. prevent shorts + pants)
-            valid_ids = deduplicate_by_body_slot(valid_ids, item_type_map)
+            valid_ids = deduplicate_by_body_slot(
+                valid_ids, item_type_map, custom_type_roles(preferences)
+            )
 
             if len(valid_ids) < 2:
                 logger.warning("Pairing has too few valid items, skipping")

@@ -64,6 +64,36 @@
     "title": "신체 치수",
     "unitSystem": "단위 시스템"
   },
+  "clothingTypes": {
+    "addType": "Add type",
+    "description": "Add your own clothing types on top of the built-in ones.",
+    "fields": {
+      "label": "Name",
+      "role": "Body slot",
+      "value": "Slug",
+      "washInterval": "Wash interval"
+    },
+    "noTypes": "No custom types yet.",
+    "placeholders": {
+      "label": "e.g. Kimono",
+      "role": "Select a body slot",
+      "value": "e.g. kimono",
+      "washInterval": "Wears between washes"
+    },
+    "slots": {
+      "accessory": "Accessory",
+      "base_top": "Base top",
+      "bottom": "Bottom",
+      "footwear": "Footwear",
+      "full_body": "Full body",
+      "mid_layer": "Mid layer",
+      "neckwear": "Neckwear",
+      "outer_layer": "Outer layer",
+      "socks": "Socks"
+    },
+    "title": "Clothing types",
+    "useInOutfits": "Use in outfit suggestions"
+  },
   "colors": {
     "colorsToAvoid": "피하고 싶은 색상",
     "description": "추천에 반영할 좋아하는 색상과 피하고 싶은 색상을 선택하세요",

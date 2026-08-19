@@ -36,6 +36,7 @@ export interface Item {
   medium_url?: string;
   tags: ItemTags;
   colors: string[];
+  user_tags: string[];
   primary_color?: string;
   status: 'processing' | 'ready' | 'error' | 'archived';
   ai_processed: boolean;
@@ -57,6 +58,7 @@ export interface Item {
   needs_wash: boolean;
   effective_wash_interval: number;
   additional_images: ItemImage[];
+  is_public: boolean;
   is_archived: boolean;
   archived_at?: string;
   archive_reason?: string;
@@ -85,6 +87,9 @@ export interface ItemFilter {
   type?: string;
   subtype?: string;
   colors?: string[];
+  tags?: string[];
+  // Another family member's wardrobe; the server forces public-only for it
+  user_id?: string;
   status?: string;
   favorite?: boolean;
   needs_wash?: boolean;
@@ -111,6 +116,26 @@ export interface AIEndpoint {
   enabled: boolean;
 }
 
+export interface CustomItemType {
+  value: string;
+  label: string;
+  // null => excluded from outfit suggestions and from AI type detection
+  role: string | null;
+  wash_interval?: number | null;
+}
+
+export const BODY_SLOTS = [
+  'base_top',
+  'bottom',
+  'full_body',
+  'mid_layer',
+  'outer_layer',
+  'footwear',
+  'socks',
+  'neckwear',
+  'accessory',
+] as const;
+
 export interface Preferences {
   color_favorites: string[];
   color_avoid: string[];
@@ -125,6 +150,7 @@ export interface Preferences {
   prefer_underused_items: boolean;
   variety_level: 'low' | 'moderate' | 'high';
   ai_endpoints: AIEndpoint[];
+  custom_item_types: CustomItemType[];
 }
 
 // Color options for the app

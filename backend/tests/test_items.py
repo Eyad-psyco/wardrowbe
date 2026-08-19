@@ -10,7 +10,11 @@ from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api import items as items_api
+from app.models.family import Family
 from app.models.item import ClothingItem, ItemStatus
+from app.models.preference import UserPreference
+from app.models.user import User
 from app.schemas.item import ItemCreate, ItemFilter
 from app.services.item_service import ItemService
 from app.workers.tagging import update_item_status_to_error
@@ -1399,3 +1403,292 @@ class TestBulkRetryCooldown:
         released = result.scalar_one()
         assert released.status == ItemStatus.error
         assert released.ai_failed_at < datetime.now(UTC) - timedelta(seconds=100)
+
+
+class TestWashWithoutWear:
+    """Feature 6: washing no longer requires at least one wear."""
+
+    @pytest.mark.asyncio
+    async def test_wash_unworn_item_succeeds(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/clean.jpg",
+            status=ItemStatus.ready,
+            wears_since_wash=0,
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        response = await client.post(f"/api/v1/items/{item.id}/wash", json={}, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["wears_since_wash"] == 0
+
+
+class TestUserTags:
+    """Feature 2: free-text tags, normalized on write and filterable."""
+
+    @pytest.mark.asyncio
+    async def test_normalize_filter_and_distribution(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/tagged.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/v1/items/{item.id}",
+            json={"user_tags": [" Summer ", "summer", ""]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["user_tags"] == ["summer"]
+
+        found = await client.get("/api/v1/items", params={"tags": "summer"}, headers=auth_headers)
+        assert [i["id"] for i in found.json()["items"]] == [str(item.id)]
+
+        missing = await client.get("/api/v1/items", params={"tags": "winter"}, headers=auth_headers)
+        assert missing.json()["items"] == []
+
+        distribution = await client.get("/api/v1/items/tags", headers=auth_headers)
+        assert distribution.status_code == 200
+        assert distribution.json() == [{"tag": "summer", "count": 1}]
+
+    @pytest.mark.asyncio
+    async def test_user_tags_do_not_mark_item_ai_tagged(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/untagged.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/v1/items/{item.id}",
+            json={"user_tags": ["work"]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["tagging_status"] == "pending"
+
+
+class TestSharedWardrobe:
+    """Feature 5: private by default, public items visible to family members."""
+
+    async def _family_peer(self, db_session: AsyncSession, test_user) -> User:
+        family = Family(
+            name="Test Family", created_by=test_user.id, invite_code=uuid4().hex[:8].upper()
+        )
+        db_session.add(family)
+        await db_session.flush()
+
+        peer = User(
+            external_id=f"peer-{uuid4()}",
+            email=f"peer-{uuid4()}@example.com",
+            display_name="Peer",
+            timezone="UTC",
+            is_active=True,
+            family_id=family.id,
+        )
+        db_session.add(peer)
+        test_user.family_id = family.id
+        await db_session.commit()
+        await db_session.refresh(peer)
+        return peer
+
+    async def _items(self, db_session: AsyncSession, owner_id) -> tuple[ClothingItem, ClothingItem]:
+        public = ClothingItem(
+            user_id=owner_id,
+            type="shirt",
+            image_path="test/public.jpg",
+            status=ItemStatus.ready,
+            is_public=True,
+        )
+        private = ClothingItem(
+            user_id=owner_id,
+            type="jeans",
+            image_path="test/private.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add_all([public, private])
+        await db_session.commit()
+        return public, private
+
+    @pytest.mark.asyncio
+    async def test_list_other_member_returns_public_only(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        peer = await self._family_peer(db_session, test_user)
+        public, _private = await self._items(db_session, peer.id)
+
+        response = await client.get(
+            "/api/v1/items", params={"user_id": str(peer.id)}, headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert [i["id"] for i in response.json()["items"]] == [str(public.id)]
+
+    @pytest.mark.asyncio
+    async def test_list_stranger_wardrobe_404s(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        stranger = User(
+            external_id=f"stranger-{uuid4()}",
+            email=f"stranger-{uuid4()}@example.com",
+            display_name="Stranger",
+            timezone="UTC",
+            is_active=True,
+        )
+        db_session.add(stranger)
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/v1/items", params={"user_id": str(stranger.id)}, headers=auth_headers
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_public_item_by_id_but_not_private(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        peer = await self._family_peer(db_session, test_user)
+        public, private = await self._items(db_session, peer.id)
+
+        ok = await client.get(f"/api/v1/items/{public.id}", headers=auth_headers)
+        assert ok.status_code == 200
+        assert ok.json()["id"] == str(public.id)
+
+        denied = await client.get(f"/api/v1/items/{private.id}", headers=auth_headers)
+        assert denied.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_items_default_to_private(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/default.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        response = await client.get(f"/api/v1/items/{item.id}", headers=auth_headers)
+        assert response.json()["is_public"] is False
+
+
+class TestAddItemImages:
+    """Feature 3: multi-file upload with per-file errors and a configurable cap."""
+
+    async def _item(self, db_session: AsyncSession, test_user) -> ClothingItem:
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/gallery.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add(item)
+        await db_session.commit()
+        await db_session.refresh(item)
+        return item
+
+    @pytest.mark.asyncio
+    async def test_three_files_get_sequential_positions(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = await self._item(db_session, test_user)
+        files = [
+            ("images", (f"shot{i}.jpg", _make_test_image_bytes(), "image/jpeg")) for i in range(3)
+        ]
+
+        response = await client.post(
+            f"/api/v1/items/{item.id}/images", files=files, headers=auth_headers
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["errors"] == []
+        assert [img["position"] for img in body["images"]] == [0, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_batch_over_cap_rejected(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        item = await self._item(db_session, test_user)
+        monkeypatch.setattr(items_api.settings, "max_item_images", 2)
+        files = [
+            ("images", (f"shot{i}.jpg", _make_test_image_bytes(), "image/jpeg")) for i in range(3)
+        ]
+
+        response = await client.post(
+            f"/api/v1/items/{item.id}/images", files=files, headers=auth_headers
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_one_bad_file_does_not_discard_the_batch(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        item = await self._item(db_session, test_user)
+        files = [
+            ("images", ("good.jpg", _make_test_image_bytes(), "image/jpeg")),
+            ("images", ("bad.txt", b"not an image", "text/plain")),
+            ("images", ("good2.jpg", _make_test_image_bytes(), "image/jpeg")),
+        ]
+
+        response = await client.post(
+            f"/api/v1/items/{item.id}/images", files=files, headers=auth_headers
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert len(body["images"]) == 2
+        assert [img["position"] for img in body["images"]] == [0, 1]
+        assert len(body["errors"]) == 1
+        assert body["errors"][0].startswith("bad.txt:")
+
+
+class TestCustomTypeWashInterval:
+    """Feature 1: a custom type's declared interval is snapshotted onto the item."""
+
+    @pytest.mark.asyncio
+    async def test_assigning_custom_type_materializes_interval(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        db_session.add(
+            UserPreference(
+                user_id=test_user.id,
+                custom_item_types=[
+                    {
+                        "value": "kimono",
+                        "label": "Kimono",
+                        "role": "outer_layer",
+                        "wash_interval": 9,
+                    }
+                ],
+            )
+        )
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="shirt",
+            image_path="test/kimono.jpg",
+            status=ItemStatus.ready,
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        response = await client.patch(
+            f"/api/v1/items/{item.id}", json={"type": "kimono"}, headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["wash_interval"] == 9
+        assert response.json()["effective_wash_interval"] == 9

@@ -34,6 +34,8 @@ export function useItems(filters: ItemFilter = {}, page = 1, pageSize = 20) {
       };
       if (filters.type) params.type = filters.type;
       if (filters.colors?.length) params.colors = filters.colors.join(',');
+      if (filters.tags?.length) params.tags = filters.tags.join(',');
+      if (filters.user_id) params.user_id = filters.user_id;
       if (filters.search) params.search = filters.search;
       if (filters.favorite !== undefined) params.favorite = String(filters.favorite);
       if (filters.needs_wash !== undefined) params.needs_wash = String(filters.needs_wash);
@@ -187,6 +189,8 @@ export function useUpdateItem() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['item', variables.id] });
+      // An edit can add or drop a user tag, so the suggestion list must follow
+      queryClient.invalidateQueries({ queryKey: ['item-tags'] });
     },
   });
 }
@@ -446,15 +450,15 @@ export function useItemWearHistory(itemId: string, limit = 10) {
   });
 }
 
-export function useAddItemImage() {
+export function useAddItemImages() {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 
   return useMutation({
-    mutationFn: async ({ itemId, file }: { itemId: string; file: File }) => {
+    mutationFn: async ({ itemId, files }: { itemId: string; files: File[] }) => {
       const token = session?.accessToken || getAccessToken();
       const formData = new FormData();
-      formData.append('image', file);
+      files.forEach((file) => formData.append('images', file));
 
       const headers: Record<string, string> = {};
       if (token) {
@@ -473,7 +477,25 @@ export function useAddItemImage() {
         throw new ApiError(data.detail || 'Failed to upload image', response.status, data);
       }
 
-      return response.json() as Promise<ItemImage>;
+      return response.json() as Promise<{ images: ItemImage[]; errors: string[] }>;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      queryClient.invalidateQueries({ queryKey: ['item', variables.itemId] });
+    },
+  });
+}
+
+export function useReorderItemImages() {
+  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+
+  return useMutation({
+    mutationFn: async ({ itemId, imageIds }: { itemId: string; imageIds: string[] }) => {
+      if (session?.accessToken) {
+        setAccessToken(session.accessToken as string);
+      }
+      return api.patch<ItemImage[]>(`/items/${itemId}/images/reorder`, { image_ids: imageIds });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
@@ -562,6 +584,17 @@ export function useColorDistribution() {
   return useQuery({
     queryKey: ['color-distribution'],
     queryFn: () => api.get<Array<{ color: string; count: number }>>('/items/colors'),
+    enabled: status !== 'loading',
+  });
+}
+
+export function useItemTags() {
+  const { status } = useSession();
+  useSetTokenIfAvailable();
+
+  return useQuery({
+    queryKey: ['item-tags'],
+    queryFn: () => api.get<Array<{ tag: string; count: number }>>('/items/tags'),
     enabled: status !== 'loading',
   });
 }

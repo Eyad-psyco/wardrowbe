@@ -50,6 +50,30 @@ class ClothingTags(BaseModel):
 TAGGING_PROMPT = load_prompt("clothing_analysis")
 DESCRIPTION_PROMPT = load_prompt("clothing_description")
 
+_TYPE_VOCABULARY_MARKER = "TYPE (required, pick one):"
+
+
+def extend_type_vocabulary(prompt: str, extra_types: list[str]) -> str:
+    """Append user-defined type slugs to the prompt's TYPE line.
+
+    Located by marker rather than hardcoded, so editing clothing_analysis.txt
+    doesn't silently stop the append from happening.
+    """
+    if not extra_types:
+        return prompt
+    marker_at = prompt.find(_TYPE_VOCABULARY_MARKER)
+    if marker_at < 0:
+        logger.warning("TYPE vocabulary marker missing from tagging prompt")
+        return prompt
+    line_start = prompt.find("\n", marker_at)
+    if line_start < 0:
+        return prompt
+    line_end = prompt.find("\n", line_start + 1)
+    if line_end < 0:
+        line_end = len(prompt)
+    return f"{prompt[:line_end]}, {', '.join(extra_types)}{prompt[line_end:]}"
+
+
 # Valid values for validation
 VALID_TYPES = {
     "shirt",
@@ -258,13 +282,16 @@ class AIEndpointConfig:
 class AIService:
     """Service for AI-powered image analysis and text generation."""
 
-    def __init__(self, endpoints: list[dict] | None = None):
+    def __init__(self, endpoints: list[dict] | None = None, custom_types: list[dict] | None = None):
         """
         Initialize AI service with optional custom endpoints.
 
         Args:
             endpoints: List of endpoint configs from user preferences.
                       If None or empty, uses default from settings.
+            custom_types: User-defined clothing types. Those with a body slot are
+                      offered to the vision model and accepted back from it; those
+                      without one (role=None) are deliberately never mentioned.
 
         Raises:
             AIDisabledError: backstop when internal AI is disabled; call sites
@@ -307,6 +334,14 @@ class AIService:
         self.base_url = self._endpoints[0].url
         self.vision_model = self._endpoints[0].vision_model
         self.text_model = self._endpoints[0].text_model
+
+        # Per-user type vocabulary. Module constants stay the defaults, so the
+        # construction sites that pass no custom_types are unaffected.
+        enabled_custom = [
+            t["value"] for t in (custom_types or []) if t.get("role") and t.get("value")
+        ]
+        self._valid_types = VALID_TYPES | set(enabled_custom)
+        self._tagging_prompt = extend_type_vocabulary(TAGGING_PROMPT, enabled_custom)
 
     def _get_headers(self) -> dict:
         """Get headers for AI API requests, including auth if configured."""
@@ -424,7 +459,7 @@ class AIService:
         tags = ClothingTags()
         tags.raw_response = response_text
 
-        item_type = validate_value(data.get("type"), VALID_TYPES)
+        item_type = validate_value(data.get("type"), self._valid_types)
         if item_type:
             tags.type = item_type
         else:
@@ -533,7 +568,7 @@ class AIService:
 
         # System/user separation for injection protection
         messages_tags = [
-            {"role": "system", "content": TAGGING_PROMPT},
+            {"role": "system", "content": self._tagging_prompt},
             {
                 "role": "user",
                 "content": [

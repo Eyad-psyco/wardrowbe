@@ -22,11 +22,11 @@ import {
   Layers,
   Droplets,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Plus,
   Star,
-  ImageIcon,
+  Lock,
+  Users,
+  GripVertical,
 } from 'lucide-react';
 import {
   Dialog,
@@ -57,12 +57,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
-import { useUpdateItem, useDeleteItem, useReanalyzeItem, useRotateImage, useRemoveBackground, useRestoreOriginal, useReplaceItemImage, useLogWash, useWashHistory, useItemWearStats, useItemWearHistory, useAddItemImage, useDeleteItemImage, useSetPrimaryImage } from '@/lib/hooks/use-items';
+import { useDropzone } from 'react-dropzone';
+import { useUpdateItem, useDeleteItem, useReanalyzeItem, useRotateImage, useRemoveBackground, useRestoreOriginal, useReplaceItemImage, useLogWash, useWashHistory, useItemWearStats, useItemWearHistory, useAddItemImages, useDeleteItemImage, useSetPrimaryImage, useReorderItemImages, useItemTags } from '@/lib/hooks/use-items';
 import { Item } from '@/lib/types';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
 import { ColorEyedropper } from '@/components/color-eyedropper';
+import { ColorPicker } from '@/components/color-picker';
+import { TagInput } from '@/components/tag-input';
+import { ImageCarousel } from '@/components/image-carousel';
 import { GeneratePairingsDialog } from '@/components/generate-pairings-dialog';
 import { useFeatures } from '@/lib/hooks/use-features';
 import { useTranslations } from 'next-intl';
@@ -71,11 +76,13 @@ interface ItemDetailDialogProps {
   item: Item | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Another family member's item: view only, no edit, no mutations, no owner-scoped queries
+  readOnly?: boolean;
 }
 
 // Images now use signed URLs from backend (item.image_url, item.thumbnail_url)
 
-export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogProps) {
+export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }: ItemDetailDialogProps) {
   const t = useTranslations('wardrobe.itemDetail');
   const tc = useTranslations('common');
   const tw = useTranslations('wardrobe');
@@ -94,10 +101,14 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
     notes: '',
     favorite: false,
     wash_interval: undefined as number | undefined,
+    secondary_colors: [] as string[],
+    user_tags: [] as string[],
+    is_public: false,
   });
   const [showWashHistory, setShowWashHistory] = useState(false);
   const [showWearHistory, setShowWearHistory] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem();
@@ -109,12 +120,17 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
   const replaceImageInputRef = useRef<HTMLInputElement>(null);
   const { data: features } = useFeatures();
   const logWash = useLogWash();
-  const { data: washHistory } = useWashHistory(item?.id || '');
-  const { data: wearStats } = useItemWearStats(item?.id || '');
-  const { data: wearHistory } = useItemWearHistory(item?.id || '', 20);
-  const addImage = useAddItemImage();
+  // Owner-scoped endpoints 404 for other family members, so they're not asked for.
+  const ownedId = readOnly ? '' : item?.id || '';
+  const { data: washHistory } = useWashHistory(ownedId);
+  const { data: wearStats } = useItemWearStats(ownedId);
+  const { data: wearHistory } = useItemWearHistory(ownedId, 20);
+  const { data: tagDistribution } = useItemTags();
+  const addImages = useAddItemImages();
   const deleteImage = useDeleteItemImage();
   const setPrimary = useSetPrimaryImage();
+  const reorderImages = useReorderItemImages();
+  const maxItemImages = features?.max_item_images ?? 20;
 
   useEffect(() => {
     if (item) {
@@ -127,11 +143,38 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
         notes: item.notes || '',
         favorite: item.favorite,
         wash_interval: item.wash_interval ?? undefined,
+        secondary_colors: (item.colors || []).filter((c) => c !== item.primary_color),
+        user_tags: item.user_tags || [],
+        is_public: item.is_public,
       });
       setIsEditing(false);
       setActiveImageIndex(0);
     }
   }, [item?.id]);
+
+  const additionalImages = item?.additional_images || [];
+
+  const handleAddImages = async (files: File[]) => {
+    if (!item || files.length === 0) return;
+    const room = maxItemImages - additionalImages.length;
+    if (room <= 0) return;
+    try {
+      const result = await addImages.mutateAsync({ itemId: item.id, files: files.slice(0, room) });
+      result.errors.forEach((message) => toast.error(message));
+    } catch (error) {
+      console.error('Failed to add images:', error);
+      toast.error(t('actions.addImagesError'));
+    }
+  };
+
+  // Declared above the `!item` bail-out because hooks must run in the same order
+  // on every render.
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: handleAddImages,
+    accept: { 'image/*': [] },
+    noClick: true,
+    disabled: !isEditing || additionalImages.length >= maxItemImages,
+  });
 
   if (!item) return null;
 
@@ -148,6 +191,14 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
           notes: editForm.notes || undefined,
           favorite: editForm.favorite,
           wash_interval: editForm.wash_interval,
+          user_tags: editForm.user_tags,
+          is_public: editForm.is_public,
+          // `colors` only, never `tags`: ItemService.update mirrors tags -> columns
+          // and the two would fight. tags.colors staying stale matches what
+          // primary_color already does today.
+          colors: Array.from(
+            new Set([editForm.primary_color, ...editForm.secondary_colors].filter(Boolean))
+          ) as string[],
         },
       });
       setIsEditing(false);
@@ -250,11 +301,35 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
     }
   };
 
+  // Index 0 is the primary image, which lives on clothing_items rather than in
+  // item_images - dropping onto it has to swap the primary, not reorder a list.
+  const handleDropOn = (to: number) => {
+    const from = dragFrom;
+    setDragFrom(null);
+    if (from === null || from === to || from === 0) return;
+    const dragged = additionalImages[from - 1];
+    if (!dragged) return;
+
+    if (to === 0) {
+      setPrimary.mutate({ itemId: item.id, imageId: dragged.id });
+      setActiveImageIndex(0);
+      return;
+    }
+
+    const next = additionalImages.filter((_, i) => i !== from - 1);
+    next.splice(to - 1, 0, dragged);
+    setActiveImageIndex(to);
+    reorderImages.mutate({ itemId: item.id, imageIds: next.map((img) => img.id) });
+  };
+
   const isAnalyzing = reanalyzeItem.isPending || item.status === 'processing';
 
   // Use signed URL from backend for better quality in detail view
   const imageUrl = item.image_url || item.image_path;
-  const colorInfo = clothingColors.find((c) => c.value === item.primary_color);
+  const itemColors = (item.colors?.length ? item.colors : [item.primary_color])
+    .filter(Boolean)
+    .map((c) => clothingColors.find((cc) => cc.value === c))
+    .filter((c): c is (typeof clothingColors)[number] => !!c);
   const typeInfo = clothingTypes.find((type) => type.value === item.type);
 
   // AI-generated tags
@@ -273,6 +348,8 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
               {item.name || (typeInfo ? typeInfo.label : item.type)}
             </DialogTitle>
             <div className="flex items-center gap-1">
+              {!readOnly && (
+                <>
               <Button
                 variant="ghost"
                 size="icon"
@@ -400,6 +477,8 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                   <Pencil className="h-5 w-5" />
                 )}
               </Button>
+                </>
+              )}
               <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full" title={tc('close')}>
                 <X className="h-5 w-5" />
               </Button>
@@ -412,50 +491,16 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
             {/* Image Gallery */}
             <div className="space-y-2">
               <div className="relative aspect-square bg-muted rounded-lg overflow-hidden">
-                {(() => {
-                  const allImages = [
-                    { url: `${imageUrl}&v=${imageKey}`, id: 'primary' },
-                    ...(item.additional_images || []).map((img) => ({ url: img.image_url, id: img.id })),
-                  ];
-                  const currentImage = allImages[activeImageIndex] || allImages[0];
-                  return (
-                    <>
-                      <Image
-                        key={`${currentImage.id}-${imageKey}`}
-                        src={currentImage.url}
-                        alt={item.name || item.type}
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 640px) 100vw, 50vw"
-                      />
-                      {allImages.length > 1 && (
-                        <>
-                          <button
-                            className="absolute left-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70"
-                            onClick={() => setActiveImageIndex((i) => (i - 1 + allImages.length) % allImages.length)}
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="absolute right-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70"
-                            onClick={() => setActiveImageIndex((i) => (i + 1) % allImages.length)}
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </button>
-                          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-                            {allImages.map((_, idx) => (
-                              <button
-                                key={idx}
-                                className={`w-1.5 h-1.5 rounded-full ${idx === activeImageIndex ? 'bg-white' : 'bg-white/50'}`}
-                                onClick={() => setActiveImageIndex(idx)}
-                              />
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
+                <ImageCarousel
+                  images={[
+                    { url: `${imageUrl}&v=${imageKey}`, id: `primary-${imageKey}` },
+                    ...additionalImages.map((img) => ({ url: img.image_url, id: img.id })),
+                  ]}
+                  alt={item.name || item.type}
+                  sizes="(max-width: 640px) 100vw, 50vw"
+                  index={activeImageIndex}
+                  onIndexChange={setActiveImageIndex}
+                />
                 {isAnalyzing && (
                   <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
                     <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -463,17 +508,34 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                   </div>
                 )}
               </div>
-              {/* Thumbnail strip */}
-              {(item.additional_images?.length > 0 || isEditing) && (
-                <div className="flex gap-1.5 overflow-x-auto">
+              {/* Thumbnail strip - doubles as a dropzone while editing */}
+              {(additionalImages.length > 0 || isEditing) && (
+                <div
+                  {...getRootProps({
+                    className: `flex gap-1.5 overflow-x-auto rounded ${
+                      isDragActive ? 'ring-2 ring-primary' : ''
+                    }`,
+                  })}
+                >
+                  <input {...getInputProps()} />
                   <button
                     className={`relative w-12 h-12 rounded border-2 overflow-hidden flex-shrink-0 ${activeImageIndex === 0 ? 'border-primary' : 'border-transparent'}`}
                     onClick={() => setActiveImageIndex(0)}
+                    onDragOver={(e) => isEditing && e.preventDefault()}
+                    onDrop={() => handleDropOn(0)}
+                    title={t('view.primaryImage')}
                   >
                     <Image src={imageUrl} alt={t('view.primaryImage')} fill className="object-cover" sizes="48px" />
                   </button>
-                  {(item.additional_images || []).map((img, idx) => (
-                    <div key={img.id} className="relative flex-shrink-0">
+                  {additionalImages.map((img, idx) => (
+                    <div
+                      key={img.id}
+                      className="relative flex-shrink-0"
+                      draggable={isEditing}
+                      onDragStart={() => setDragFrom(idx + 1)}
+                      onDragOver={(e) => isEditing && e.preventDefault()}
+                      onDrop={() => handleDropOn(idx + 1)}
+                    >
                       <button
                         className={`relative w-12 h-12 rounded border-2 overflow-hidden ${activeImageIndex === idx + 1 ? 'border-primary' : 'border-transparent'}`}
                         onClick={() => setActiveImageIndex(idx + 1)}
@@ -481,36 +543,40 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                         <Image src={img.thumbnail_url || img.image_url} alt="" fill className="object-cover" sizes="48px" />
                       </button>
                       {isEditing && (
-                        <div className="absolute -top-1 -right-1 flex gap-0.5">
-                          <button
-                            className="bg-primary text-primary-foreground rounded-full p-0.5 hover:bg-primary/90"
-                            title={t('titles.setAsPrimary')}
-                            onClick={() => {
-                              setPrimary.mutate({ itemId: item.id, imageId: img.id });
-                              setActiveImageIndex(0);
-                            }}
-                          >
-                            <Star className="h-2.5 w-2.5" />
-                          </button>
-                          <button
-                            className="bg-destructive text-destructive-foreground rounded-full p-0.5 hover:bg-destructive/90"
-                            title={t('titles.deleteImage')}
-                            onClick={() => {
-                              deleteImage.mutate({ itemId: item.id, imageId: img.id });
-                              if (activeImageIndex > idx) setActiveImageIndex((i) => i - 1);
-                            }}
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
+                        <>
+                          <GripVertical className="absolute bottom-0 left-0 h-3 w-3 text-white drop-shadow" />
+                          <div className="absolute -top-1 -right-1 flex gap-0.5">
+                            <button
+                              className="bg-primary text-primary-foreground rounded-full p-0.5 hover:bg-primary/90"
+                              title={t('titles.setAsPrimary')}
+                              onClick={() => {
+                                setPrimary.mutate({ itemId: item.id, imageId: img.id });
+                                setActiveImageIndex(0);
+                              }}
+                            >
+                              <Star className="h-2.5 w-2.5" />
+                            </button>
+                            <button
+                              className="bg-destructive text-destructive-foreground rounded-full p-0.5 hover:bg-destructive/90"
+                              title={t('titles.deleteImage')}
+                              onClick={() => {
+                                deleteImage.mutate({ itemId: item.id, imageId: img.id });
+                                if (activeImageIndex > idx) setActiveImageIndex((i) => i - 1);
+                              }}
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                   ))}
-                  {isEditing && (item.additional_images?.length || 0) < 4 && (
+                  {isEditing && additionalImages.length < maxItemImages && (
                     <label
                       className="w-12 h-12 rounded border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer hover:border-primary/50 flex-shrink-0"
+                      title={t('titles.addImages')}
                     >
-                      {addImage.isPending ? (
+                      {addImages.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : (
                         <Plus className="h-4 w-4 text-muted-foreground" />
@@ -518,12 +584,10 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                       <input
                         type="file"
                         accept="image/*"
+                        multiple
                         className="hidden"
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            addImage.mutate({ itemId: item.id, file });
-                          }
+                          handleAddImages(Array.from(e.target.files || []));
                           e.target.value = '';
                         }}
                       />
@@ -602,6 +666,40 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                       />
                     </div>
                   </div>
+                  <ColorPicker
+                    label={t('secondaryColors')}
+                    selected={editForm.secondary_colors}
+                    onChange={(colors) =>
+                      setEditForm({
+                        ...editForm,
+                        secondary_colors: colors.filter((c) => c !== editForm.primary_color),
+                      })
+                    }
+                  />
+                  <div className="space-y-2">
+                    <Label>{t('tags')}</Label>
+                    <TagInput
+                      value={editForm.user_tags}
+                      onChange={(user_tags) => setEditForm({ ...editForm, user_tags })}
+                      suggestions={(tagDistribution || []).map((t) => t.tag)}
+                      placeholder={t('placeholders.addTag')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <Label className="flex items-center gap-1.5">
+                        {editForm.is_public ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                        {t('visibility.label')}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {editForm.is_public ? t('visibility.publicHint') : t('visibility.privateHint')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={editForm.is_public}
+                      onCheckedChange={(is_public) => setEditForm({ ...editForm, is_public })}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label>{t('notes')}</Label>
                     <Textarea
@@ -663,14 +761,48 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                         <span>{item.brand}</span>
                       </div>
                     )}
-                    {colorInfo && (
+                    {itemColors.length > 0 && (
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
+                        <Palette className="h-4 w-4 text-muted-foreground shrink-0" />
+                        {itemColors.map((c) => (
+                          <span key={c.value} className="flex items-center gap-1.5">
+                            <div
+                              className="w-4 h-4 rounded-full border"
+                              style={{ backgroundColor: c.hex }}
+                            />
+                            <span>{c.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {item.user_tags?.length > 0 && (
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
+                        <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+                        {item.user_tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {!readOnly && (
                       <div className="flex items-center gap-2 text-sm">
-                        <Palette className="h-4 w-4 text-muted-foreground" />
-                        <div
-                          className="w-4 h-4 rounded-full border"
-                          style={{ backgroundColor: colorInfo.hex }}
+                        {item.is_public ? (
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Lock className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-muted-foreground">
+                          {item.is_public ? t('visibility.public') : t('visibility.private')}
+                        </span>
+                        <Switch
+                          className="ml-auto"
+                          checked={item.is_public}
+                          disabled={updateItem.isPending}
+                          onCheckedChange={(is_public) =>
+                            updateItem.mutate({ id: item.id, data: { is_public } })
+                          }
                         />
-                        <span>{colorInfo.name}</span>
                       </div>
                     )}
                     {item.wear_count > 0 && (
@@ -698,7 +830,7 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 text-xs"
+                        className={`h-7 text-xs ${readOnly ? 'hidden' : ''}`}
                         onClick={handleMarkWashed}
                         disabled={logWash.isPending}
                       >
@@ -944,7 +1076,7 @@ export function ItemDetailDialog({ item, open, onOpenChange }: ItemDetailDialogP
             </div>
 
             {/* Delete button - separated from other actions for safety */}
-            {!isEditing && (
+            {!isEditing && !readOnly && (
               <div className="pt-4 border-t mt-4">
                 <Button
                   variant="ghost"

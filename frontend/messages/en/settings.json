@@ -64,6 +64,36 @@
     "title": "Body Measurements",
     "unitSystem": "Unit System"
   },
+  "clothingTypes": {
+    "addType": "Add type",
+    "description": "Add your own clothing types on top of the built-in ones.",
+    "fields": {
+      "label": "Name",
+      "role": "Body slot",
+      "value": "Slug",
+      "washInterval": "Wash interval"
+    },
+    "noTypes": "No custom types yet.",
+    "placeholders": {
+      "label": "e.g. Kimono",
+      "role": "Select a body slot",
+      "value": "e.g. kimono",
+      "washInterval": "Wears between washes"
+    },
+    "slots": {
+      "accessory": "Accessory",
+      "base_top": "Base top",
+      "bottom": "Bottom",
+      "footwear": "Footwear",
+      "full_body": "Full body",
+      "mid_layer": "Mid layer",
+      "neckwear": "Neckwear",
+      "outer_layer": "Outer layer",
+      "socks": "Socks"
+    },
+    "title": "Clothing types",
+    "useInOutfits": "Use in outfit suggestions"
+  },
   "colors": {
     "colorsToAvoid": "Colors to Avoid",
     "description": "Select colors you love and colors to avoid in recommendations",

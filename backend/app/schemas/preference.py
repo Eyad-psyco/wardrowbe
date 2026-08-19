@@ -1,4 +1,39 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.utils.clothing import BODY_SLOTS, BUILTIN_ITEM_TYPES
+
+
+class CustomItemType(BaseModel):
+    value: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,49}$", description="Slug stored on the item")
+    label: str = Field(min_length=1, max_length=50, description="Display name")
+    # None => excluded from outfit suggestions AND from AI type detection
+    role: str | None = Field(default=None, description=f"Body slot, one of {sorted(BODY_SLOTS)}")
+    wash_interval: int | None = Field(
+        default=None, ge=1, le=100, description="Default wears between washes for this type"
+    )
+
+    @field_validator("role")
+    @classmethod
+    def _known_role(cls, v: str | None) -> str | None:
+        if v is not None and v not in BODY_SLOTS:
+            raise ValueError(f"role must be null or one of {sorted(BODY_SLOTS)}")
+        return v
+
+    @field_validator("value")
+    @classmethod
+    def _not_builtin(cls, v: str) -> str:
+        if v in BUILTIN_ITEM_TYPES:
+            raise ValueError(f"'{v}' is already a built-in clothing type")
+        return v
+
+
+def _reject_duplicate_types(v: list[CustomItemType] | None) -> list[CustomItemType] | None:
+    if v is None:
+        return None
+    values = [t.value for t in v]
+    if len(values) != len(set(values)):
+        raise ValueError("custom_item_types contains duplicate values")
+    return v
 
 
 class AIEndpoint(BaseModel):
@@ -72,6 +107,14 @@ class PreferenceBase(BaseModel):
         description="AI endpoints in priority order (first available is used)",
     )
 
+    # User-defined clothing types
+    custom_item_types: list[CustomItemType] = Field(default_factory=list)
+
+    @field_validator("custom_item_types")
+    @classmethod
+    def _unique_types(cls, v: list[CustomItemType]) -> list[CustomItemType]:
+        return _reject_duplicate_types(v)
+
 
 class PreferenceCreate(PreferenceBase):
     pass
@@ -91,6 +134,12 @@ class PreferenceUpdate(BaseModel):
     prefer_underused_items: bool | None = None
     variety_level: str | None = Field(default=None, pattern="^(low|moderate|high)$")
     ai_endpoints: list[AIEndpoint] | None = None
+    custom_item_types: list[CustomItemType] | None = None
+
+    @field_validator("custom_item_types")
+    @classmethod
+    def _unique_types(cls, v: list[CustomItemType] | None) -> list[CustomItemType] | None:
+        return _reject_duplicate_types(v)
 
 
 class PreferenceResponse(PreferenceBase):

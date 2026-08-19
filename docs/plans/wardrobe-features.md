@@ -4,38 +4,61 @@
 
 Tick as each lands. Ordered by dependency — later items assume earlier ones.
 
-- [ ] **§1 Migration** — `user_tags`, `is_public`, `custom_item_types` (one file)
-- [ ] **§2 Feature 6** — drop the worn-before-wash requirement
-- [ ] **§3 Feature 7** — secondary colors (multiple colors per item)
-  - [ ] extract `ColorPicker` to `components/color-picker.tsx`
-  - [ ] secondary-color multi-select in the item edit form
-  - [ ] show all colors in read-only view + wardrobe card
-- [ ] **§4 Feature 2** — free-text tags with suggestions
-  - [ ] `user_tags` column, schemas, normalizing validator
-  - [ ] `GET /items/tags` + tag filter on `GET /items`
-  - [ ] `components/tag-input.tsx` + wire into edit form
-  - [ ] tag filter on the wardrobe page
-- [ ] **§5 Feature 3** — bulk image upload per item + ordering
-  - [ ] multi-file `POST /items/{id}/images`, `max_item_images` config
-  - [ ] dropzone on the thumbnail strip
-  - [ ] native drag-reorder, incl. drop-on-primary
-- [ ] **§6 Feature 4** — card thumbnail carousel
-  - [ ] extract `components/image-carousel.tsx`
-  - [ ] use it in `ItemCard` and the detail dialog
-- [ ] **§7 Feature 5** — private / public items
-  - [ ] `is_public` column + schemas + toggle UI
-  - [ ] `GET /items?user_id=` family gate + public `GET /items/{id}`
-  - [ ] "whose wardrobe" switcher + `readOnly` detail dialog
-- [ ] **§8 Feature 1** — custom clothing types from settings
-  - [ ] `CustomItemType` schema + validators
-  - [ ] body-slot `role_overrides` through the 3 call sites
-  - [ ] outfit exclusion for `role=None`
-  - [ ] per-user AI type vocabulary
-  - [ ] per-type default wash interval
-  - [ ] settings UI card + `useClothingTypes()` merge
-- [ ] **§9 Feature 8** — convert uploads to WebP
-- [ ] i18n keys + `npm run i18n:check`
-- [ ] verification pass (§ Verification)
+- [x] **§1 Migration** — `user_tags`, `is_public`, `custom_item_types` (one file)
+- [x] **§2 Feature 6** — drop the worn-before-wash requirement
+- [x] **§3 Feature 7** — secondary colors (multiple colors per item)
+  - [x] extract `ColorPicker` to `components/color-picker.tsx`
+  - [x] secondary-color multi-select in the item edit form
+  - [x] show all colors in read-only view + wardrobe card
+- [x] **§4 Feature 2** — free-text tags with suggestions
+  - [x] `user_tags` column, schemas, normalizing validator
+  - [x] `GET /items/tags` + tag filter on `GET /items`
+  - [x] `components/tag-input.tsx` + wire into edit form
+  - [x] tag filter on the wardrobe page
+- [x] **§5 Feature 3** — bulk image upload per item + ordering
+  - [x] multi-file `POST /items/{id}/images`, `max_item_images` config
+  - [x] dropzone on the thumbnail strip
+  - [x] native drag-reorder, incl. drop-on-primary
+- [x] **§6 Feature 4** — card thumbnail carousel
+  - [x] extract `components/image-carousel.tsx`
+  - [x] use it in `ItemCard` and the detail dialog
+- [x] **§7 Feature 5** — private / public items
+  - [x] `is_public` column + schemas + toggle UI
+  - [x] `GET /items?user_id=` family gate + public `GET /items/{id}`
+  - [x] "whose wardrobe" switcher + `readOnly` detail dialog
+- [x] **§8 Feature 1** — custom clothing types from settings
+  - [x] `CustomItemType` schema + validators
+  - [x] body-slot `role_overrides` through the 3 call sites
+  - [x] outfit exclusion for `role=None`
+  - [x] per-user AI type vocabulary
+  - [x] per-type default wash interval
+  - [x] settings UI card + `useClothingTypes()` merge
+- [x] **§9 Feature 8** — convert uploads to WebP
+- [x] i18n keys + `npm run i18n:check`
+- [x] verification pass (§ Verification)
+
+### Deviations from the plan
+
+- **`db.refresh(item)` was already broken.** Dropping the wash guard (§2) exposed it: the
+  wash/wear/rotate/set-primary routes all called `await db.refresh(item)` before
+  `ItemResponse.model_validate(item)`, which expires the eager-loaded `additional_images`
+  and 422s on the lazy load. Replaced at all four call sites with one
+  `_reloaded_response()` helper in `api/items.py`. The write always succeeded; only the
+  response failed, which is why no test caught it.
+- **`custom_type_roles(user.preferences)` can't be read off a lazy relationship.**
+  `StudioService` and `PairingService` fetch the row with `db.get(UserPreference, user.id)`
+  instead — free on the request path (identity map), safe off it. `role_overrides` params
+  were still added to `utils/clothing` as planned; only the studio helper's signature
+  changed (it takes `user` and is now `async`).
+- **Body slots and the built-in type list are derived, not retyped.** `BODY_SLOTS` comes
+  from `_CANONICAL_ROLE_ORDER` and `BUILTIN_ITEM_TYPES` from `ITEM_ROLE`, so the schema
+  validator can't drift from the tables it validates against.
+- **Shared view gets `components/pagination.tsx`**, not the bulk toolbar — hiding the
+  toolbar (as planned) would otherwise have hidden the pager it carries.
+- **`npm run i18n:scan` fails on a pre-existing, unrelated finding:** `components/ui/dialog.tsx`
+  is in the script's `SKIP_DIRS`, but the check compares `'components/ui'` against a
+  Windows path (`components\ui`), so the shadcn primitives get walked on Windows only.
+  `i18n:keys` and `i18n:parity` pass.
 
 ## Context
 

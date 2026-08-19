@@ -1,5 +1,8 @@
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
+
+from app.schemas.preference import PreferenceUpdate
 
 
 class TestPreferencesEndpoints:
@@ -111,3 +114,76 @@ class TestPreferenceValidation:
             headers=auth_headers,
         )
         assert response.status_code == 200
+
+
+class TestCustomItemTypes:
+    """Feature 1: validation of user-defined clothing types."""
+
+    def test_rejects_builtin_collision(self):
+        with pytest.raises(ValidationError):
+            PreferenceUpdate(
+                custom_item_types=[{"value": "shirt", "label": "Shirt", "role": "base_top"}]
+            )
+
+    def test_rejects_unknown_role(self):
+        with pytest.raises(ValidationError):
+            PreferenceUpdate(
+                custom_item_types=[{"value": "kimono", "label": "Kimono", "role": "hovercraft"}]
+            )
+
+    def test_rejects_duplicate_values(self):
+        with pytest.raises(ValidationError):
+            PreferenceUpdate(
+                custom_item_types=[
+                    {"value": "kimono", "label": "Kimono", "role": "outer_layer"},
+                    {"value": "kimono", "label": "Kimono 2", "role": "outer_layer"},
+                ]
+            )
+
+    def test_rejects_bad_slug(self):
+        with pytest.raises(ValidationError):
+            PreferenceUpdate(
+                custom_item_types=[{"value": "Ki Mono!", "label": "Kimono", "role": "accessory"}]
+            )
+
+    def test_accepts_type_without_role(self):
+        parsed = PreferenceUpdate(
+            custom_item_types=[{"value": "lingerie", "label": "Lingerie", "role": None}]
+        )
+        assert parsed.custom_item_types[0].role is None
+
+    @pytest.mark.asyncio
+    async def test_round_trips_through_the_endpoint(
+        self, client: AsyncClient, test_user, auth_headers
+    ):
+        response = await client.patch(
+            "/api/v1/users/me/preferences",
+            json={
+                "custom_item_types": [
+                    {
+                        "value": "kimono",
+                        "label": "Kimono",
+                        "role": "outer_layer",
+                        "wash_interval": 9,
+                    },
+                    {"value": "lingerie", "label": "Lingerie", "role": None},
+                ]
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        types = response.json()["custom_item_types"]
+        assert [t["value"] for t in types] == ["kimono", "lingerie"]
+        assert types[0]["wash_interval"] == 9
+        assert types[1]["role"] is None
+
+    @pytest.mark.asyncio
+    async def test_endpoint_rejects_builtin_collision(
+        self, client: AsyncClient, test_user, auth_headers
+    ):
+        response = await client.patch(
+            "/api/v1/users/me/preferences",
+            json={"custom_item_types": [{"value": "jeans", "label": "Jeans", "role": "bottom"}]},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422

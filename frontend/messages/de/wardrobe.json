@@ -105,9 +105,11 @@
     "noItemsFound": "Keine Stücke zu deinen Filtern gefunden."
   },
   "favorites": "Favoriten",
+  "filterByTag": "Filter by tag",
   "itemCount": "{count, plural, one {# Stück in deinem Kleiderschrank} other {# Stücke in deinem Kleiderschrank}}",
   "itemDetail": {
     "actions": {
+      "addImagesError": "Failed to add images",
       "backgroundRemoveError": "Hintergrund konnte nicht entfernt werden",
       "backgroundRemoved": "Hintergrund entfernt",
       "cancelEditing": "Bearbeitung abbrechen",
@@ -134,6 +136,7 @@
     "name": "Name",
     "notes": "Notizen",
     "placeholders": {
+      "addTag": "Add a tag and press Enter",
       "additionalNotes": "Zusätzliche Notizen...",
       "brandName": "Markenname",
       "itemName": "Name des Stücks",
@@ -141,7 +144,10 @@
       "washIntervalDefault": "Standard: {count}"
     },
     "primaryColor": "Hauptfarbe",
+    "secondaryColors": "Secondary colors",
+    "tags": "Tags",
     "titles": {
+      "addImages": "Add images",
       "analysisInProgress": "Analyse läuft...",
       "deleteImage": "Bild löschen",
       "findMatchingOutfits": "Passende Outfits finden",
@@ -184,6 +190,13 @@
       "wearsSinceWash": "Getragen seit Wäsche: {current}/{max}",
       "wornCount": "{count, plural, one {# Mal getragen} other {# Mal getragen}}"
     },
+    "visibility": {
+      "label": "Share with family",
+      "private": "Private",
+      "privateHint": "Only you can see this item.",
+      "public": "Shared with family",
+      "publicHint": "Family members can see this item in your wardrobe."
+    },
     "washInterval": "Waschintervall"
   },
   "lightbox": {
@@ -192,6 +205,11 @@
   "needsWash": "Muss gewaschen werden",
   "pageSize": "{count} pro Seite",
   "search": "Stücke suchen...",
+  "shared": {
+    "memberWardrobe": "{name}'s wardrobe",
+    "myWardrobe": "My wardrobe",
+    "publicBadge": "Shared with your family"
+  },
   "sort": {
     "leastRecentlyWorn": "Am längsten nicht getragen",
     "leastWorn": "Am seltensten getragen",
@@ -204,15 +222,15 @@
   },
   "title": "Mein Kleiderschrank",
   "uploadQueue": {
-    "remaining": "{count, plural, one {# photo uploading in the background} other {# photos uploading in the background}}",
-    "keepTabOpen": "Keep this tab open until this finishes",
-    "storageNotPersisted": "Your browser may clear queued photos if you navigate away before this finishes",
-    "resuming": "Resuming {count, plural, one {# photo} other {# photos}} from an earlier import",
-    "failedCount": "{count, plural, one {# photo could not be uploaded} other {# photos could not be uploaded}}",
-    "retryAll": "Retry all",
-    "dismissAll": "Dismiss all",
-    "retry": "Retry",
     "dismiss": "Dismiss",
+    "dismissAll": "Dismiss all",
+    "failedCount": "{count, plural, one {# photo could not be uploaded} other {# photos could not be uploaded}}",
+    "keepTabOpen": "Keep this tab open until this finishes",
+    "remaining": "{count, plural, one {# photo uploading in the background} other {# photos uploading in the background}}",
+    "resuming": "Resuming {count, plural, one {# photo} other {# photos}} from an earlier import",
+    "retry": "Retry",
+    "retryAll": "Retry all",
+    "storageNotPersisted": "Your browser may clear queued photos if you navigate away before this finishes",
     "unprotectedWarning": "{count, plural, one {# file could not be protected against interruption (storage full)} other {# files could not be protected against interruption (storage full)}} - keep this tab open until upload completes"
   },
   "wearCount": "{count, plural, one {# Mal getragen} other {# Mal getragen}}",

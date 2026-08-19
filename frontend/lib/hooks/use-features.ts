@@ -6,6 +6,7 @@ import { api, setAccessToken } from '@/lib/api';
 
 interface Features {
   background_removal: boolean;
+  max_item_images: number;
 }
 
 export function useFeatures() {

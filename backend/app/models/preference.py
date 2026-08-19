@@ -54,6 +54,11 @@ class UserPreference(Base):
     # Each endpoint: {url, vision_model, text_model, name, enabled}
     ai_endpoints: Mapped[list] = mapped_column(JSONB, default=list)
 
+    # User-defined clothing types on top of the built-in vocabulary.
+    # Each entry: {value, label, role, wash_interval}; role=None means the type is
+    # excluded from outfits and from AI type detection.
+    custom_item_types: Mapped[list] = mapped_column(JSONB, default=list)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

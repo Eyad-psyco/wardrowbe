@@ -15,10 +15,11 @@ from app.models.outfit import (
     OutfitSource,
     OutfitStatus,
 )
+from app.models.preference import UserPreference
 from app.models.user import User
 from app.schemas.item import DEFAULT_WASH_INTERVALS
 from app.services.learning_service import LearningService
-from app.utils.clothing import canonical_item_order
+from app.utils.clothing import canonical_item_order, custom_type_roles
 
 
 class ItemOwnershipError(Exception):
@@ -76,9 +77,18 @@ class StudioService:
         self.db = db
         self.learning = LearningService(db)
 
-    def _order_items_canonically(self, items: list[ClothingItem]) -> list[ClothingItem]:
+    async def _order_items_canonically(
+        self, items: list[ClothingItem], user: User
+    ) -> list[ClothingItem]:
+        # Fetched rather than read off user.preferences: that relationship is only
+        # eager-loaded on the request path, and touching it unloaded raises
+        # MissingGreenlet. db.get hits the identity map when it is already loaded,
+        # so the request path pays nothing.
+        preferences = await self.db.get(UserPreference, user.id)
         type_map = {item.id: (item.type or "") for item in items}
-        ordered_ids = canonical_item_order([i.id for i in items], type_map)
+        ordered_ids = canonical_item_order(
+            [i.id for i in items], type_map, custom_type_roles(preferences)
+        )
         by_id = {item.id: item for item in items}
         return [by_id[iid] for iid in ordered_ids]
 
@@ -152,7 +162,7 @@ class StudioService:
         notes: str | None = None,
     ) -> Outfit:
         items = await validate_item_ownership(self.db, user.id, item_ids)
-        ordered = self._order_items_canonically(items)
+        ordered = await self._order_items_canonically(items, user)
 
         effective_worn = scheduled_for if mark_worn else None
 
@@ -218,7 +228,7 @@ class StudioService:
             return existing_replacement
 
         items = await validate_item_ownership(self.db, user.id, item_ids)
-        ordered = self._order_items_canonically(items)
+        ordered = await self._order_items_canonically(items, user)
 
         effective_date = scheduled_for or original.scheduled_for
 
@@ -397,7 +407,7 @@ class StudioService:
                 raise OutfitWornImmutableError("cannot modify items on a worn outfit")
 
             new_items = await validate_item_ownership(self.db, user.id, items)
-            ordered = self._order_items_canonically(new_items)
+            ordered = await self._order_items_canonically(new_items, user)
 
             old_item_ids = [oi.item_id for oi in outfit.items]
             new_item_ids = [i.id for i in ordered]

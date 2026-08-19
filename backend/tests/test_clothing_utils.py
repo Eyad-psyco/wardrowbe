@@ -1,6 +1,15 @@
 from uuid import uuid4
 
-from app.utils.clothing import ITEM_ROLE, canonical_item_order, deduplicate_by_body_slot
+from app.utils.clothing import (
+    BODY_SLOTS,
+    BUILTIN_ITEM_TYPES,
+    ITEM_ROLE,
+    canonical_item_order,
+    custom_type_roles,
+    custom_type_wash_intervals,
+    deduplicate_by_body_slot,
+    outfit_excluded_types,
+)
 
 
 def _ids(n):
@@ -202,3 +211,58 @@ def test_canonical_order_full_outfit():
 def test_canonical_order_empty_list():
     result = canonical_item_order([], {})
     assert result == []
+
+
+class _Prefs:
+    def __init__(self, custom_item_types):
+        self.custom_item_types = custom_item_types
+
+
+def test_role_override_dedupes_custom_outer_layer():
+    kimono_id, jacket_id, shirt_id = _ids(3)
+    item_type_map = {kimono_id: "kimono", jacket_id: "jacket", shirt_id: "shirt"}
+
+    # Without the override "kimono" is an unknown type and is always kept
+    kept = deduplicate_by_body_slot([kimono_id, jacket_id, shirt_id], item_type_map)
+    assert kimono_id in kept and jacket_id in kept
+
+    result = deduplicate_by_body_slot(
+        [kimono_id, jacket_id, shirt_id], item_type_map, {"kimono": "outer_layer"}
+    )
+    assert kimono_id in result
+    assert jacket_id not in result
+    assert shirt_id in result
+
+
+def test_role_override_orders_custom_type_by_slot():
+    kimono_id, shirt_id, shoes_id = _ids(3)
+    item_type_map = {kimono_id: "kimono", shirt_id: "shirt", shoes_id: "shoes"}
+
+    result = canonical_item_order(
+        [shoes_id, kimono_id, shirt_id], item_type_map, {"kimono": "outer_layer"}
+    )
+    assert result == [shirt_id, kimono_id, shoes_id]
+
+
+def test_custom_type_helpers_split_on_role():
+    prefs = _Prefs(
+        [
+            {"value": "kimono", "label": "Kimono", "role": "outer_layer", "wash_interval": 9},
+            {"value": "lingerie", "label": "Lingerie", "role": None},
+        ]
+    )
+    assert custom_type_roles(prefs) == {"kimono": "outer_layer"}
+    assert outfit_excluded_types(prefs) == {"lingerie"}
+    assert custom_type_wash_intervals(prefs) == {"kimono": 9}
+
+
+def test_custom_type_helpers_tolerate_missing_preferences():
+    assert custom_type_roles(None) == {}
+    assert outfit_excluded_types(None) == set()
+    assert custom_type_wash_intervals(None) == {}
+
+
+def test_body_slots_cover_every_builtin_role():
+    assert set(ITEM_ROLE.values()) <= BODY_SLOTS
+    assert "shirt" in BUILTIN_ITEM_TYPES
+    assert "kimono" not in BUILTIN_ITEM_TYPES

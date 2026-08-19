@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { Loader2, Save, RotateCcw, Check, Plus, Trash2, ChevronUp, ChevronDown, Server, MapPin, Navigation, Ruler } from 'lucide-react';
+import { Loader2, Save, RotateCcw, Plus, Trash2, ChevronUp, ChevronDown, Server, MapPin, Navigation, Ruler, Shirt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,8 +25,9 @@ import {
   isNetworkLocationFallbackEnabled,
   resolveNetworkLocation,
 } from '@/lib/location';
-import { Preferences, StyleProfile, AIEndpoint } from '@/lib/types';
-import { useClothingColors, useOccasions } from '@/lib/hooks/use-translated-constants';
+import { Preferences, StyleProfile, AIEndpoint, CustomItemType, BODY_SLOTS } from '@/lib/types';
+import { ColorPicker } from '@/components/color-picker';
+import { useOccasions } from '@/lib/hooks/use-translated-constants';
 import { toF, toCelsius } from '@/lib/temperature';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
@@ -54,6 +55,15 @@ const BODY_MEASUREMENT_FIELDS = [
   { key: 'inseam', unitMetric: 'cm', unitImperial: 'in', placeholderMetric: 'e.g. 81', placeholderImperial: 'e.g. 32' },
 ] as const;
 
+// Matches the backend's ^[a-z0-9][a-z0-9-]{0,49}$ so the field can't be saved invalid.
+function slugifyType(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 50);
+}
+
 function getErrorMessage(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message;
   return fallback;
@@ -65,77 +75,6 @@ interface EndpointTestResult {
   visionModels?: string[];
   textModels?: string[];
   error?: string;
-}
-
-function ColorPicker({
-  selected,
-  onChange,
-  label,
-}: {
-  selected: string[];
-  onChange: (colors: string[]) => void;
-  label: string;
-}) {
-  const clothingColors = useClothingColors();
-
-  const toggleColor = (color: string) => {
-    if (selected.includes(color)) {
-      onChange(selected.filter((c) => c !== color));
-    } else {
-      onChange([...selected, color]);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-2">
-        {clothingColors.map((color) => {
-          const isSelected = selected.includes(color.value);
-          return (
-            <button
-              key={color.value}
-              type="button"
-              onClick={() => toggleColor(color.value)}
-              className={`w-8 h-8 rounded-full border-2 transition-all ${
-                isSelected
-                  ? 'border-primary ring-2 ring-primary/30 scale-110'
-                  : 'border-muted-foreground/20 hover:border-muted-foreground/40'
-              }`}
-              style={{ backgroundColor: color.hex }}
-              title={color.name}
-            >
-              {isSelected && (
-                <Check
-                  className={`h-4 w-4 mx-auto ${
-                    color.value === 'white' || color.value === 'yellow' || color.value === 'beige'
-                      ? 'text-black'
-                      : 'text-white'
-                  }`}
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {selected.map((color) => {
-            const colorInfo = clothingColors.find((c) => c.value === color);
-            return (
-              <Badge key={color} variant="secondary" className="gap-1">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: colorInfo?.hex }}
-                />
-                {colorInfo?.name}
-              </Badge>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function StyleSlider({
@@ -1008,6 +947,146 @@ export default function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Clothing types */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shirt className="h-5 w-5" />
+              {t('clothingTypes.title')}
+            </CardTitle>
+            <CardDescription>{t('clothingTypes.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(formData.custom_item_types || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('clothingTypes.noTypes')}</p>
+            ) : (
+              <div className="space-y-3">
+                {(formData.custom_item_types || []).map((ct, index) => {
+                  const patch = (changes: Partial<CustomItemType>) => {
+                    const updated = [...(formData.custom_item_types || [])];
+                    updated[index] = { ...updated[index], ...changes };
+                    updateField('custom_item_types', updated);
+                  };
+                  const inOutfits = ct.role !== null;
+                  return (
+                    <div key={index} className="border rounded-lg p-4 space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('clothingTypes.fields.label')}</Label>
+                          <Input
+                            value={ct.label}
+                            onChange={(e) => patch({ label: e.target.value })}
+                            placeholder={t('clothingTypes.placeholders.label')}
+                            className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('clothingTypes.fields.value')}</Label>
+                          <Input
+                            value={ct.value}
+                            onChange={(e) => patch({ value: slugifyType(e.target.value) })}
+                            placeholder={t('clothingTypes.placeholders.value')}
+                            className="h-8 font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('clothingTypes.fields.role')}</Label>
+                          <Select
+                            value={ct.role ?? ''}
+                            disabled={!inOutfits}
+                            onValueChange={(v) => patch({ role: v })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder={t('clothingTypes.placeholders.role')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {BODY_SLOTS.map((slot) => (
+                                <SelectItem key={slot} value={slot}>
+                                  {t(`clothingTypes.slots.${slot}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('clothingTypes.fields.washInterval')}</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={ct.wash_interval ?? ''}
+                            onChange={(e) =>
+                              patch({
+                                wash_interval: e.target.value ? parseInt(e.target.value) : null,
+                              })
+                            }
+                            placeholder={t('clothingTypes.placeholders.washInterval')}
+                            className="h-8"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={inOutfits}
+                            onCheckedChange={(checked) =>
+                              patch({ role: checked ? 'accessory' : null })
+                            }
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {t('clothingTypes.useInOutfits')}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() =>
+                            updateField(
+                              'custom_item_types',
+                              (formData.custom_item_types || []).filter((_, i) => i !== index)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const newType: CustomItemType = {
+                    value: '',
+                    label: '',
+                    role: 'accessory',
+                    wash_interval: null,
+                  };
+                  updateField('custom_item_types', [...(formData.custom_item_types || []), newType]);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t('clothingTypes.addType')}
+              </Button>
+              {hasChanges && (
+                <Button onClick={handleSave} disabled={updatePreferences.isPending}>
+                  {updatePreferences.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  {tc('save')}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -203,6 +203,7 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
 
         # Get user's AI endpoints from preferences, and mark this attempt as started
         ai_endpoints = None
+        custom_types = None
         db = get_db_session(ctx)
         try:
             # Get the item to find user_id
@@ -219,6 +220,7 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
                 select(UserPreference).where(UserPreference.user_id == item.user_id)
             )
             prefs = pref_result.scalar_one_or_none()
+            custom_types = getattr(prefs, "custom_item_types", None) or None
             if prefs and prefs.ai_endpoints:
                 ai_endpoints = prefs.ai_endpoints
                 logger.info(
@@ -230,7 +232,7 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
             await db.close()
 
         # Analyze with AI (uses custom endpoints if available)
-        ai_service = AIService(endpoints=ai_endpoints)
+        ai_service = AIService(endpoints=ai_endpoints, custom_types=custom_types)
         tags = await asyncio.wait_for(
             ai_service.analyze_image(path), timeout=_tagging_call_budget(ai_service)
         )
