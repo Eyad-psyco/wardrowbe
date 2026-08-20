@@ -15,6 +15,10 @@ function backendUrl(): string {
 const STRIPPED_REQUEST_HEADERS = new Set([
   'connection',
   'content-length',
+  // Browsers add this for POST bodies over ~1MB (e.g. bulk image uploads); undici's fetch
+  // doesn't support forwarding it and throws UND_ERR_NOT_SUPPORTED, turning the request
+  // into a 502 before it ever reaches the backend.
+  'expect',
   'host',
   'keep-alive',
   'proxy-authenticate',

@@ -14,6 +14,20 @@
   - [x] icon picker in settings "Clothing types" card
   - [x] icon shown in wardrobe page type-filter popover
 - [x] verification pass (tsc, i18n:check, pytest, manual code review)
+- [x] **§4** Follow-up polish (requested after §1–§3 landed)
+  - [x] custom hand-drawn SVG icons (Pants/Shorts/Skirt/Dress/Jacket/Cardigan/Sock/Tie/Hat/Scarf/Belt)
+    in `lib/type-icons.tsx`, matching lucide's 24×24 stroke style, since lucide has no
+    literal shape for most garments
+  - [x] `BUILTIN_TYPE_ICONS` map + `getBuiltinTypeIcon()`: every built-in `CLOTHING_TYPES`
+    value now gets a matching icon instead of one generic default for all of them
+  - [x] category icon shown as a badge overlay (bottom-left) on each item's thumbnail
+    in the wardrobe grid (`ItemCard`)
+  - [x] type-filter popover moved from the collapsible filter row to the main
+    toolbar row, immediately next to the sort `Select`
+  - [x] `tests/type-icons.test.ts` (vitest): every built-in type has its own mapping,
+    every mapped name resolves in the picker list, unknown-type/unknown-icon fallback,
+    every curated icon (lucide + hand-drawn) actually renders a non-empty `<svg>`,
+    and every hand-drawn icon's `<path>` elements have non-empty `d` data
 
 ### Deviations from the plan
 
@@ -30,4 +44,7 @@
   tagging/worker/capabilities infra) on `main` with none of this work applied —
   confirmed via `git stash`. Unrelated to §1–§3; not investigated further here.
 - Not done: no in-browser manual pass (no browser tool available in this session) —
-  verified via `tsc --noEmit`, `i18n:check`, and the pytest suite above only.
+  verified via `tsc --noEmit`, `i18n:check`, and the pytest/vitest suites above only.
+- `npm test` has 1 pre-existing unrelated failure —
+  `tests/api-proxy.test.ts > streams the body with duplex half on POST` (Node fetch
+  `duplex` option, unrelated to this file's changes; not touched here).

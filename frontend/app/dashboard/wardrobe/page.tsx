@@ -88,7 +88,9 @@ function ItemCard({
 }) {
   const t = useTranslations('wardrobe');
   const tc = useTranslations('common');
+  const clothingTypes = useClothingTypes();
   const clothingColors = useClothingColors();
+  const TypeIcon = getTypeIcon(clothingTypes.find((ct) => ct.value === item.type)?.icon);
   const itemColors = (item.colors?.length ? item.colors : [item.primary_color])
     .filter(Boolean)
     .map((c) => clothingColors.find((cc) => cc.value === c))
@@ -185,6 +187,11 @@ function ItemCard({
             </div>
           </div>
         )}
+        <div className="absolute bottom-2 left-2 z-10">
+          <span className="bg-background/80 backdrop-blur-sm rounded-full p-1 flex items-center justify-center" title={item.type}>
+            <TypeIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </div>
         {isProcessing && (
           <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2">
             <Loader2 className="h-6 w-6 text-white animate-spin" />
@@ -768,7 +775,7 @@ export default function WardrobePage() {
               className="pl-9"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Select
               value={String(sortIndex)}
               onValueChange={(v) => {
@@ -788,37 +795,9 @@ export default function WardrobePage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              variant={imageFit === 'cover' ? 'default' : 'outline'}
-              size="icon"
-              className="shrink-0"
-              title={t(imageFit === 'cover' ? 'imageFit.cover' : 'imageFit.contain')}
-              onClick={() => setImageFit((f) => (f === 'cover' ? 'contain' : 'cover'))}
-            >
-              <Crop className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={showFilters || activeFilterCount > 0 ? 'default' : 'outline'}
-              size="icon"
-              className="shrink-0 relative"
-              onClick={() => setShowFilters((v) => !v)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              {activeFilterCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Expandable filter row */}
-        {showFilters && (
-          <div className="flex flex-wrap gap-2 items-center p-3 rounded-lg border bg-muted/30">
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="w-[150px] h-8 text-xs justify-between font-normal">
+                <Button variant="outline" className="w-[150px] justify-between font-normal shrink-0">
                   <span className="truncate">
                     {typeFilter.length === 0
                       ? t('allTypes')
@@ -875,7 +854,34 @@ export default function WardrobePage() {
                 </div>
               </PopoverContent>
             </Popover>
+            <Button
+              variant={imageFit === 'cover' ? 'default' : 'outline'}
+              size="icon"
+              className="shrink-0"
+              title={t(imageFit === 'cover' ? 'imageFit.cover' : 'imageFit.contain')}
+              onClick={() => setImageFit((f) => (f === 'cover' ? 'contain' : 'cover'))}
+            >
+              <Crop className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={showFilters || activeFilterCount > 0 ? 'default' : 'outline'}
+              size="icon"
+              className="shrink-0 relative"
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          </div>
+        </div>
 
+        {/* Expandable filter row */}
+        {showFilters && (
+          <div className="flex flex-wrap gap-2 items-center p-3 rounded-lg border bg-muted/30">
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {

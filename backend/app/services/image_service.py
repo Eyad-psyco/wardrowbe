@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import uuid
 from datetime import datetime
@@ -119,6 +120,20 @@ class ImageService:
             "thumbnail": "user_id/20240116_123456_abc123_thumb.webp",
         }
         """
+        # Off the event loop: three Pillow resize/encode passes plus a phash over a
+        # full-resolution photo take long enough (seconds) that running them inline
+        # here stalls every other request this single uvicorn process is serving -
+        # including other images in the same bulk chunk - until this one is done.
+        return await asyncio.to_thread(
+            self._process_and_store_sync, user_id, image_data, original_filename
+        )
+
+    def _process_and_store_sync(
+        self,
+        user_id: uuid.UUID,
+        image_data: bytes,
+        original_filename: str,
+    ) -> dict[str, str]:
         # Validate file extension
         ext = Path(original_filename).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:

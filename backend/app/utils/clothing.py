@@ -38,9 +38,13 @@ ITEM_ROLE: dict[str, str] = {
 
 
 ALLOWED_TYPE_ICONS = frozenset({
+    # Real lucide-react icons
     "Shirt", "ShoppingBag", "Footprints", "Watch", "Glasses", "Crown", "Gem",
     "Umbrella", "Scissors", "Palette", "Star", "Heart", "Tag", "Layers",
     "Package", "Sparkles", "Backpack", "Briefcase", "Gift", "CircleDot",
+    # Custom hand-drawn icons in frontend/lib/type-icons.tsx (no lucide equivalent)
+    "Pants", "Shorts", "Skirt", "Dress", "Jacket", "Cardigan", "Sock", "Tie",
+    "Hat", "Scarf", "Belt",
 })
 
 

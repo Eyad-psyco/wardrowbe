@@ -239,6 +239,7 @@
   "title": "My Wardrobe",
   "typesSelected": "{count} types",
   "uploadQueue": {
+    "cancel": "Cancel",
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",
     "failedCount": "{count, plural, one {# photo could not be uploaded} other {# photos could not be uploaded}}",

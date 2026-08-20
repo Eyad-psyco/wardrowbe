@@ -187,7 +187,9 @@ async def create_item(
 
     # Compute hash and check for duplicates BEFORE storing
     try:
-        image_hash = image_service.compute_phash(content, image.filename or "upload.jpg")
+        image_hash = await asyncio.to_thread(
+            image_service.compute_phash, content, image.filename or "upload.jpg"
+        )
         existing = await item_service.find_duplicate_by_hash(current_user.id, image_hash)
         if existing:
             raise HTTPException(
@@ -362,7 +364,9 @@ async def bulk_create_items(
 
                 # Check for duplicates BEFORE storing
                 try:
-                    image_hash = image_service.compute_phash(content, filename)
+                    image_hash = await asyncio.to_thread(
+                        image_service.compute_phash, content, filename
+                    )
                     existing = await item_service.find_duplicate_by_hash(user_id, image_hash)
                     if existing:
                         results.append(

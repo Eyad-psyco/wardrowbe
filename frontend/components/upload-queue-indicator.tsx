@@ -60,7 +60,16 @@ export function UploadQueueIndicator() {
           </div>
         )}
         {state.remaining > 0 && (
-          <p className="text-xs text-muted-foreground">{t('keepTabOpen')}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">{t('keepTabOpen')}</p>
+            <button
+              type="button"
+              className="shrink-0 text-xs text-muted-foreground hover:underline"
+              onClick={() => uploadManager.cancelAll()}
+            >
+              {t('cancel')}
+            </button>
+          </div>
         )}
         {state.storagePersisted === false && (
           <p className="text-xs text-yellow-600">{t('storageNotPersisted')}</p>

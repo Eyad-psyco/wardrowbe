@@ -203,3 +203,9 @@ export async function dismissAll(): Promise<void> {
   await Promise.all(terminalRecords.map((r) => dismissRecord(r.id)));
   await emit();
 }
+
+export async function cancelAll(): Promise<void> {
+  const records = await getPendingUploads();
+  await Promise.all(records.map((r) => dismissRecord(r.id)));
+  await emit();
+}
