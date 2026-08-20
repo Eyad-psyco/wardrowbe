@@ -567,6 +567,40 @@ export function useRotateImage() {
   });
 }
 
+export function useBulkRotateImages() {
+  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+
+  return useMutation({
+    mutationFn: async ({
+      itemId,
+      imageIds,
+      rotatePrimary,
+      direction,
+    }: {
+      itemId: string;
+      imageIds: string[];
+      rotatePrimary: boolean;
+      direction: 'cw' | 'ccw';
+    }) => {
+      if (session?.accessToken) {
+        setAccessToken(session.accessToken as string);
+      }
+      return api.post<{ item: Item; errors: string[] }>(`/items/${itemId}/images/rotate-bulk`, {
+        image_ids: imageIds,
+        rotate_primary: rotatePrimary,
+        direction,
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      queryClient.invalidateQueries({ queryKey: ['item', variables.itemId] });
+      queryClient.invalidateQueries({ queryKey: ['outfits'] });
+      queryClient.invalidateQueries({ queryKey: ['calendarOutfits'] });
+    },
+  });
+}
+
 export function useItemTypes() {
   const { status } = useSession();
   useSetTokenIfAvailable();

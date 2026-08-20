@@ -309,6 +309,21 @@ class BulkAnalyzeResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class RotateImagesRequest(BaseModel):
+    image_ids: list[UUID] = Field(default_factory=list)
+    rotate_primary: bool = False
+    direction: str = Field(default="cw", pattern="^(cw|ccw)$")
+
+    def model_post_init(self, __context):
+        if not self.rotate_primary and not self.image_ids:
+            raise ValueError("Provide rotate_primary and/or image_ids")
+
+
+class RotateImagesResponse(BaseModel):
+    item: ItemResponse
+    errors: list[str] = Field(default_factory=list)
+
+
 class ItemImageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

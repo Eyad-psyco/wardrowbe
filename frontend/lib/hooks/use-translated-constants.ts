@@ -8,6 +8,7 @@ import {
   OCCASIONS,
 } from '@/lib/types';
 import { usePreferences } from '@/lib/hooks/use-preferences';
+import { DEFAULT_TYPE_ICON } from '@/lib/type-icons';
 
 const STYLE_VALUES = ['bold', 'casual', 'formal', 'minimalist', 'sporty'] as const;
 const WEATHER_CONDITION_VALUES = ['clear', 'cloudy', 'rain', 'snow'] as const;
@@ -21,8 +22,8 @@ export function useClothingTypes() {
   // the user typed. Every type dropdown and the wardrobe type filter map over this
   // hook's result, so they pick the new types up with no edits.
   return useMemo(() => [
-    ...CLOTHING_TYPES.map((ct) => ({ value: ct.value as string, label: t(ct.value) })),
-    ...(customTypes || []).map((ct) => ({ value: ct.value, label: ct.label })),
+    ...CLOTHING_TYPES.map((ct) => ({ value: ct.value as string, label: t(ct.value), icon: DEFAULT_TYPE_ICON })),
+    ...(customTypes || []).map((ct) => ({ value: ct.value, label: ct.label, icon: ct.icon ?? DEFAULT_TYPE_ICON })),
   ], [t, customTypes]);
 }
 

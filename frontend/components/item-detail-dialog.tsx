@@ -45,6 +45,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -61,7 +62,7 @@ import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
-import { useUpdateItem, useDeleteItem, useReanalyzeItem, useRotateImage, useRemoveBackground, useRestoreOriginal, useReplaceItemImage, useLogWash, useWashHistory, useItemWearStats, useItemWearHistory, useAddItemImages, useDeleteItemImage, useSetPrimaryImage, useReorderItemImages, useItemTags } from '@/lib/hooks/use-items';
+import { useUpdateItem, useDeleteItem, useReanalyzeItem, useRotateImage, useBulkRotateImages, useRemoveBackground, useRestoreOriginal, useReplaceItemImage, useLogWash, useWashHistory, useItemWearStats, useItemWearHistory, useAddItemImages, useDeleteItemImage, useSetPrimaryImage, useReorderItemImages, useItemTags } from '@/lib/hooks/use-items';
 import { Item } from '@/lib/types';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
 import { ColorEyedropper } from '@/components/color-eyedropper';
@@ -109,11 +110,14 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
   const [showWearHistory, setShowWearHistory] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
+  // 'primary' for the item's primary image, otherwise an ItemImage id.
+  const [selectedForRotate, setSelectedForRotate] = useState<Set<string>>(new Set());
 
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem();
   const reanalyzeItem = useReanalyzeItem();
   const rotateImage = useRotateImage();
+  const bulkRotate = useBulkRotateImages();
   const removeBackground = useRemoveBackground();
   const restoreOriginal = useRestoreOriginal();
   const replaceImage = useReplaceItemImage();
@@ -149,6 +153,7 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
       });
       setIsEditing(false);
       setActiveImageIndex(0);
+      setSelectedForRotate(new Set());
     }
   }, [item?.id]);
 
@@ -263,6 +268,32 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
       toast.success(t('actions.imageRotated'));
     } catch (error) {
       console.error('Failed to rotate image:', error);
+      toast.error(t('actions.imageRotateError'));
+    }
+  };
+
+  const toggleSelectForRotate = (id: string, checked: boolean) => {
+    setSelectedForRotate((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleBulkRotate = async (direction: 'cw' | 'ccw') => {
+    const rotatePrimary = selectedForRotate.has('primary');
+    const imageIds = Array.from(selectedForRotate).filter((id) => id !== 'primary');
+    try {
+      const result = await bulkRotate.mutateAsync({ itemId: item.id, imageIds, rotatePrimary, direction });
+      setImageKey((k) => k + 1);
+      setSelectedForRotate(new Set());
+      if (result.errors.length > 0) {
+        toast.error(t('actions.imagesRotatePartial', { count: result.errors.length }));
+      } else {
+        toast.success(t('actions.imagesRotated'));
+      }
+    } catch (error) {
+      console.error('Failed to rotate images:', error);
       toast.error(t('actions.imageRotateError'));
     }
   };
@@ -512,21 +543,31 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
               {(additionalImages.length > 0 || isEditing) && (
                 <div
                   {...getRootProps({
-                    className: `flex flex-col gap-1.5 overflow-y-auto max-h-40 rounded ${
+                    className: `flex flex-wrap gap-1.5 overflow-y-auto max-h-40 rounded ${
                       isDragActive ? 'ring-2 ring-primary' : ''
                     }`,
                   })}
                 >
                   <input {...getInputProps()} />
-                  <button
-                    className={`relative w-12 h-12 rounded border-2 overflow-hidden flex-shrink-0 ${activeImageIndex === 0 ? 'border-primary' : 'border-transparent'}`}
-                    onClick={() => setActiveImageIndex(0)}
-                    onDragOver={(e) => isEditing && e.preventDefault()}
-                    onDrop={() => handleDropOn(0)}
-                    title={t('view.primaryImage')}
-                  >
-                    <Image src={imageUrl} alt={t('view.primaryImage')} fill className="object-cover" sizes="48px" />
-                  </button>
+                  <div className="relative flex-shrink-0">
+                    <button
+                      className={`relative w-12 h-12 rounded border-2 overflow-hidden ${activeImageIndex === 0 ? 'border-primary' : 'border-transparent'}`}
+                      onClick={() => setActiveImageIndex(0)}
+                      onDragOver={(e) => isEditing && e.preventDefault()}
+                      onDrop={() => handleDropOn(0)}
+                      title={t('view.primaryImage')}
+                    >
+                      <Image src={imageUrl} alt={t('view.primaryImage')} fill className="object-cover" sizes="48px" />
+                    </button>
+                    {isEditing && (
+                      <Checkbox
+                        className="absolute bottom-0 right-0 h-4 w-4 bg-background/80"
+                        checked={selectedForRotate.has('primary')}
+                        onCheckedChange={(checked) => toggleSelectForRotate('primary', checked === true)}
+                        title={t('titles.selectForRotate')}
+                      />
+                    )}
+                  </div>
                   {additionalImages.map((img, idx) => (
                     <div
                       key={img.id}
@@ -567,6 +608,12 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
                               <X className="h-2.5 w-2.5" />
                             </button>
                           </div>
+                          <Checkbox
+                            className="absolute bottom-0 right-0 h-4 w-4 bg-background/80"
+                            checked={selectedForRotate.has(img.id)}
+                            onCheckedChange={(checked) => toggleSelectForRotate(img.id, checked === true)}
+                            title={t('titles.selectForRotate')}
+                          />
                         </>
                       )}
                     </div>
@@ -593,6 +640,39 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
                       />
                     </label>
                   )}
+                </div>
+              )}
+              {isEditing && selectedForRotate.size > 0 && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{t('view.selectedCount', { count: selectedForRotate.size })}</span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-6 w-6"
+                    title={t('titles.rotateSelectedCcw')}
+                    disabled={bulkRotate.isPending}
+                    onClick={() => handleBulkRotate('ccw')}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-6 w-6"
+                    title={t('titles.rotateSelectedCw')}
+                    disabled={bulkRotate.isPending}
+                    onClick={() => handleBulkRotate('cw')}
+                  >
+                    <RotateCw className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2"
+                    onClick={() => setSelectedForRotate(new Set())}
+                  >
+                    {tc('clear')}
+                  </Button>
                 </div>
               )}
             </div>

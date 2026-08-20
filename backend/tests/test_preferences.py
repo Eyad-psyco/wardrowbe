@@ -152,6 +152,22 @@ class TestCustomItemTypes:
         )
         assert parsed.custom_item_types[0].role is None
 
+    def test_rejects_unknown_icon(self):
+        with pytest.raises(ValidationError):
+            PreferenceUpdate(
+                custom_item_types=[
+                    {"value": "kimono", "label": "Kimono", "role": "outer_layer", "icon": "Bomb"}
+                ]
+            )
+
+    def test_accepts_known_icon(self):
+        parsed = PreferenceUpdate(
+            custom_item_types=[
+                {"value": "kimono", "label": "Kimono", "role": "outer_layer", "icon": "Sparkles"}
+            ]
+        )
+        assert parsed.custom_item_types[0].icon == "Sparkles"
+
     @pytest.mark.asyncio
     async def test_round_trips_through_the_endpoint(
         self, client: AsyncClient, test_user, auth_headers

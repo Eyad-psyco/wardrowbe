@@ -124,6 +124,8 @@ export interface CustomItemType {
   // null => excluded from outfit suggestions and from AI type detection
   role: string | null;
   wash_interval?: number | null;
+  // Curated lucide-react icon name; see lib/type-icons.ts
+  icon?: string | null;
 }
 
 export const BODY_SLOTS = [

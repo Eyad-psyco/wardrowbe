@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
-from app.utils.clothing import BODY_SLOTS, BUILTIN_ITEM_TYPES
+from app.utils.clothing import ALLOWED_TYPE_ICONS, BODY_SLOTS, BUILTIN_ITEM_TYPES
 
 
 class CustomItemType(BaseModel):
@@ -11,12 +11,22 @@ class CustomItemType(BaseModel):
     wash_interval: int | None = Field(
         default=None, ge=1, le=100, description="Default wears between washes for this type"
     )
+    icon: str | None = Field(
+        default=None, description=f"lucide icon name, one of {sorted(ALLOWED_TYPE_ICONS)}"
+    )
 
     @field_validator("role")
     @classmethod
     def _known_role(cls, v: str | None) -> str | None:
         if v is not None and v not in BODY_SLOTS:
             raise ValueError(f"role must be null or one of {sorted(BODY_SLOTS)}")
+        return v
+
+    @field_validator("icon")
+    @classmethod
+    def _known_icon(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_TYPE_ICONS:
+            raise ValueError(f"icon must be null or one of {sorted(ALLOWED_TYPE_ICONS)}")
         return v
 
     @field_validator("value")

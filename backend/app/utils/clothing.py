@@ -37,6 +37,13 @@ ITEM_ROLE: dict[str, str] = {
 }
 
 
+ALLOWED_TYPE_ICONS = frozenset({
+    "Shirt", "ShoppingBag", "Footprints", "Watch", "Glasses", "Crown", "Gem",
+    "Umbrella", "Scissors", "Palette", "Star", "Heart", "Tag", "Layers",
+    "Package", "Sparkles", "Backpack", "Briefcase", "Gift", "CircleDot",
+})
+
+
 def custom_type_roles(preferences) -> dict[str, str]:
     """Body-slot role for every custom type that declares one.
 

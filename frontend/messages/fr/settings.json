@@ -68,6 +68,7 @@
     "addType": "Add type",
     "description": "Add your own clothing types on top of the built-in ones.",
     "fields": {
+      "icon": "Icon",
       "label": "Name",
       "role": "Body slot",
       "value": "Slug",
@@ -75,6 +76,7 @@
     },
     "noTypes": "No custom types yet.",
     "placeholders": {
+      "icon": "Select an icon",
       "label": "e.g. Kimono",
       "role": "Select a body slot",
       "value": "e.g. kimono",

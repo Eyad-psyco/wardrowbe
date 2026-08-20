@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.item import ClothingItem, ItemStatus
+from app.models.item import ClothingItem, ItemImage, ItemStatus
 from app.models.user import User
 from app.services.image_service import ImageService
 
@@ -280,6 +280,79 @@ class TestDeleteCleansBackup:
         response = await client.delete(f"/api/v1/items/{item_with_image.id}", headers=auth_headers)
         assert response.status_code == 204
         assert not ImageService().get_image_path(backup_path).exists()
+
+
+class TestBulkRotateImagesEndpoint:
+    @pytest.mark.asyncio
+    async def test_rotates_primary_only(
+        self, client: AsyncClient, auth_headers, item_with_image: ClothingItem
+    ):
+        response = await client.post(
+            f"/api/v1/items/{item_with_image.id}/images/rotate-bulk",
+            json={"rotate_primary": True, "direction": "cw"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_rotates_additional_image_by_id(
+        self,
+        client: AsyncClient,
+        auth_headers,
+        db_session: AsyncSession,
+        item_with_image: ClothingItem,
+    ):
+        svc = ImageService()
+        paths = await svc.process_and_store(
+            user_id=item_with_image.user_id,
+            image_data=_jpeg_bytes(color=RED),
+            original_filename="extra.jpg",
+        )
+        extra = ItemImage(
+            item_id=item_with_image.id,
+            image_path=paths["image_path"],
+            thumbnail_path=paths["thumbnail_path"],
+            medium_path=paths["medium_path"],
+            position=0,
+        )
+        db_session.add(extra)
+        await db_session.commit()
+        await db_session.refresh(extra)
+
+        response = await client.post(
+            f"/api/v1/items/{item_with_image.id}/images/rotate-bulk",
+            json={"image_ids": [str(extra.id)], "direction": "ccw"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_unknown_image_id_reported_as_error_not_a_failure(
+        self, client: AsyncClient, auth_headers, item_with_image: ClothingItem
+    ):
+        missing = uuid4()
+        response = await client.post(
+            f"/api/v1/items/{item_with_image.id}/images/rotate-bulk",
+            json={"image_ids": [str(missing)], "direction": "cw"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        errors = response.json()["errors"]
+        assert len(errors) == 1
+        assert str(missing) in errors[0]
+
+    @pytest.mark.asyncio
+    async def test_requires_primary_or_image_ids(
+        self, client: AsyncClient, auth_headers, item_with_image: ClothingItem
+    ):
+        response = await client.post(
+            f"/api/v1/items/{item_with_image.id}/images/rotate-bulk",
+            json={"direction": "cw"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
 
 
 class TestWebPConversion:

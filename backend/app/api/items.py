@@ -35,6 +35,8 @@ from app.schemas.item import (
     LogWearRequest,
     RemoveBackgroundRequest,
     ReorderImagesRequest,
+    RotateImagesRequest,
+    RotateImagesResponse,
     TaggingProgressResponse,
     WashHistoryResponse,
 )
@@ -1272,6 +1274,61 @@ async def rotate_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to rotate image",
         ) from None
+
+
+@router.post("/{item_id}/images/rotate-bulk", response_model=RotateImagesResponse)
+async def rotate_item_images_bulk(
+    item_id: UUID,
+    request: RotateImagesRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> RotateImagesResponse:
+    from app.models.item import ItemImage
+
+    item_service = ItemService(db)
+    item = await item_service.get_by_id(item_id, current_user.id)
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found",
+        )
+
+    if request.rotate_primary and not item.image_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item has no image",
+        )
+
+    image_service_inst = ImageService()
+    errors: list[str] = []
+
+    if request.rotate_primary:
+        try:
+            image_service_inst.rotate_image(item.image_path, request.direction)
+        except Exception as e:
+            logger.error(f"Failed to rotate primary image: {e}")
+            errors.append("primary image: failed to rotate")
+
+    if request.image_ids:
+        result = await db.execute(
+            select(ItemImage).where(
+                ItemImage.item_id == item_id, ItemImage.id.in_(request.image_ids)
+            )
+        )
+        images = result.scalars().all()
+        found_ids = {img.id for img in images}
+        errors += [f"{missing}: image not found" for missing in set(request.image_ids) - found_ids]
+        for img in images:
+            try:
+                image_service_inst.rotate_image(img.image_path, request.direction)
+            except Exception as e:
+                logger.error(f"Failed to rotate image {img.id}: {e}")
+                errors.append(f"{img.id}: failed to rotate")
+
+    await db.commit()
+    reloaded = await _reloaded_response(item_service, item_id, current_user.id)
+    return RotateImagesResponse(item=reloaded, errors=errors)
 
 
 @router.post("/{item_id}/remove-background", response_model=ItemResponse)

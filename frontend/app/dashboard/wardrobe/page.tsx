@@ -38,6 +38,7 @@ import { useUserProfile } from '@/lib/hooks/use-user';
 import { useFamily } from '@/lib/hooks/use-family';
 import { Item } from '@/lib/types';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
+import { getTypeIcon } from '@/lib/type-icons';
 import { toast } from 'sonner';
 import { formatWornAgo, getWornAgoColorClass } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
@@ -841,32 +842,36 @@ export default function WardrobePage() {
                   {t('selectAll')}
                 </Button>
                 <div className="mt-1 max-h-60 overflow-auto">
-                  {clothingTypes.map((type) => (
-                    <label
-                      key={type.value}
-                      className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent cursor-pointer"
-                    >
-                      <Checkbox
-                        checked={typeFilter.length === 0 || typeFilter.includes(type.value)}
-                        onCheckedChange={(checked) => {
-                          setTypeFilter((prev) => {
-                            // Unchecking from the "all" state means all-but-this-one.
-                            const base = prev.length ? prev : clothingTypes.map((ct) => ct.value);
-                            const next =
-                              checked === true
-                                ? [...base, type.value]
-                                : base.filter((v) => v !== type.value);
-                            // Everything selected is the same query as nothing selected, and
-                            // the empty form keeps it out of the URL. Unchecking the last
-                            // remaining type lands there too, so the grid is never empty.
-                            return next.length === clothingTypes.length ? [] : next;
-                          });
-                          setPage(1);
-                        }}
-                      />
-                      <span className="truncate">{type.label}</span>
-                    </label>
-                  ))}
+                  {clothingTypes.map((type) => {
+                    const Icon = getTypeIcon(type.icon);
+                    return (
+                      <label
+                        key={type.value}
+                        className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent cursor-pointer"
+                      >
+                        <Checkbox
+                          checked={typeFilter.length === 0 || typeFilter.includes(type.value)}
+                          onCheckedChange={(checked) => {
+                            setTypeFilter((prev) => {
+                              // Unchecking from the "all" state means all-but-this-one.
+                              const base = prev.length ? prev : clothingTypes.map((ct) => ct.value);
+                              const next =
+                                checked === true
+                                  ? [...base, type.value]
+                                  : base.filter((v) => v !== type.value);
+                              // Everything selected is the same query as nothing selected, and
+                              // the empty form keeps it out of the URL. Unchecking the last
+                              // remaining type lands there too, so the grid is never empty.
+                              return next.length === clothingTypes.length ? [] : next;
+                            });
+                            setPage(1);
+                          }}
+                        />
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="truncate">{type.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </PopoverContent>
             </Popover>

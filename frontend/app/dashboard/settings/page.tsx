@@ -28,6 +28,7 @@ import {
 import { Preferences, StyleProfile, AIEndpoint, CustomItemType, BODY_SLOTS } from '@/lib/types';
 import { ColorPicker } from '@/components/color-picker';
 import { useOccasions } from '@/lib/hooks/use-translated-constants';
+import { TYPE_ICON_OPTIONS, DEFAULT_TYPE_ICON } from '@/lib/type-icons';
 import { toF, toCelsius } from '@/lib/temperature';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
@@ -1027,6 +1028,27 @@ export default function SettingsPage() {
                             placeholder={t('clothingTypes.placeholders.washInterval')}
                             className="h-8"
                           />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('clothingTypes.fields.icon')}</Label>
+                          <Select
+                            value={ct.icon ?? DEFAULT_TYPE_ICON}
+                            onValueChange={(v) => patch({ icon: v })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder={t('clothingTypes.placeholders.icon')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TYPE_ICON_OPTIONS.map(({ name, Icon }) => (
+                                <SelectItem key={name} value={name}>
+                                  <div className="flex items-center gap-2">
+                                    <Icon className="h-4 w-4" />
+                                    {name}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
