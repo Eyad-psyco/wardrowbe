@@ -185,10 +185,10 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
         data: {
           name: editForm.name || undefined,
           type: editForm.type,
-          subtype: editForm.subtype || undefined,
-          brand: editForm.brand || undefined,
-          primary_color: editForm.primary_color || undefined,
-          notes: editForm.notes || undefined,
+          subtype: editForm.subtype,
+          brand: editForm.brand,
+          primary_color: editForm.primary_color,
+          notes: editForm.notes,
           favorite: editForm.favorite,
           wash_interval: editForm.wash_interval,
           user_tags: editForm.user_tags,
@@ -512,7 +512,7 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
               {(additionalImages.length > 0 || isEditing) && (
                 <div
                   {...getRootProps({
-                    className: `flex gap-1.5 overflow-x-auto rounded ${
+                    className: `flex flex-col gap-1.5 overflow-y-auto max-h-40 rounded ${
                       isDragActive ? 'ring-2 ring-primary' : ''
                     }`,
                   })}
