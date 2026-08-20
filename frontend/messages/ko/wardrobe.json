@@ -31,7 +31,9 @@
     "bulkUpload": "일괄 업로드",
     "dropzone": "이미지를 끌어다 놓거나 탭하여 선택하세요",
     "dropzoneActive": "여기에 이미지를 놓으세요",
+    "extraImagesFailed": "{count, plural, other {추가 이미지 #장을 업로드하지 못했습니다}}",
     "formatHint": "PNG, JPG 또는 HEIC",
+    "imageCountHint": "{max}장 중 {count}장 · 첫 번째 사진이 대표 이미지입니다",
     "letAiDetect": "AI가 감지하도록 하기...",
     "nameInputPlaceholder": "예: 블루 옥스포드 셔츠",
     "namePlaceholder": "이름 (선택사항)",
@@ -43,6 +45,8 @@
     "singleItem": "단일 아이템",
     "submit": "아이템 추가",
     "subtitle": "옷 사진을 업로드하세요",
+    "tagsInputPlaceholder": "태그를 입력하고 Enter를 누르세요",
+    "tagsLabel": "태그",
     "title": "아이템 추가",
     "typeLabel": "유형 (비워두면 AI가 감지해요)",
     "uploading": "업로드 중..."
@@ -106,6 +110,10 @@
   },
   "favorites": "즐겨찾기",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "이미지 전체 표시 중 — 탭하면 꽉 채웁니다",
+    "fill": "이미지를 꽉 채우는 중 — 탭하면 전체를 표시합니다"
+  },
   "itemCount": "{count, plural, other {옷장에 아이템 #개}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "옷장에서 열기"
   },
+  "moreTags": "+{count}",
   "needsWash": "세탁 필요",
   "pageSize": "페이지당 {count}개",
   "search": "아이템 검색...",
+  "selectAll": "전체 선택",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "최근 착용순"
   },
   "title": "내 옷장",
+  "typesSelected": "{count}개 유형 선택됨",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

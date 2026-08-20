@@ -681,7 +681,7 @@ export function ItemDetailDialog({ item, open, onOpenChange, readOnly = false }:
                     <TagInput
                       value={editForm.user_tags}
                       onChange={(user_tags) => setEditForm({ ...editForm, user_tags })}
-                      suggestions={(tagDistribution || []).map((t) => t.tag)}
+                      suggestions={tagDistribution || []}
                       placeholder={t('placeholders.addTag')}
                     />
                   </div>

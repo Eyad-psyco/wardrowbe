@@ -31,7 +31,9 @@
     "bulkUpload": "一括アップロード",
     "dropzone": "画像をドラッグ＆ドロップ、またはタップして選択",
     "dropzoneActive": "ここに画像をドロップ",
+    "extraImagesFailed": "{count, plural, other {追加の画像 # 枚をアップロードできませんでした}}",
     "formatHint": "PNG、JPG、HEIC",
+    "imageCountHint": "{max} 枚中 {count} 枚 · 最初の画像がメイン写真です",
     "letAiDetect": "AIに検出させる...",
     "nameInputPlaceholder": "例：ブルーオックスフォードシャツ",
     "namePlaceholder": "名前（任意）",
@@ -43,6 +45,8 @@
     "singleItem": "単品",
     "submit": "アイテムを追加",
     "subtitle": "衣類の写真をアップロード",
+    "tagsInputPlaceholder": "タグを入力して Enter キーを押す",
+    "tagsLabel": "タグ",
     "title": "アイテムを追加",
     "typeLabel": "タイプ（空欄ならAIが検出）",
     "uploading": "アップロード中..."
@@ -106,6 +110,10 @@
   },
   "favorites": "お気に入り",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "画像全体を表示中 — タップして全面表示",
+    "fill": "画像を全面に引き伸ばし中 — タップして全体表示"
+  },
   "itemCount": "{count, plural, one {ワードローブに# 件のアイテム} other {ワードローブに# 件のアイテム}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "ワードローブで開く"
   },
+  "moreTags": "+{count}",
   "needsWash": "洗濯が必要",
   "pageSize": "{count} 件/ページ",
   "search": "アイテムを検索...",
+  "selectAll": "すべて選択",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "最近着用"
   },
   "title": "マイワードローブ",
+  "typesSelected": "{count} 種類を選択中",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

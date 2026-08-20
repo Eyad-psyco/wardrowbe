@@ -33,6 +33,7 @@ export function useItems(filters: ItemFilter = {}, page = 1, pageSize = 20) {
         page_size: String(pageSize),
       };
       if (filters.type) params.type = filters.type;
+      if (filters.types?.length) params.types = filters.types.join(',');
       if (filters.colors?.length) params.colors = filters.colors.join(',');
       if (filters.tags?.length) params.tags = filters.tags.join(',');
       if (filters.user_id) params.user_id = filters.user_id;
@@ -664,7 +665,7 @@ export interface BulkOperationParams {
   excluded_ids?: string[];
   // Filters to apply when using select_all (to match the current view)
   filters?: {
-    type?: string;
+    types?: string[];
     search?: string;
     needs_wash?: boolean;
     favorite?: boolean;

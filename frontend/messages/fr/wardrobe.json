@@ -31,7 +31,9 @@
     "bulkUpload": "Téléchargement groupé",
     "dropzone": "Glissez-déposez une image, ou appuyez pour sélectionner",
     "dropzoneActive": "Déposez l'image ici",
+    "extraImagesFailed": "{count, plural, one {# image supplémentaire n'a pas pu être envoyée} other {# images supplémentaires n'ont pas pu être envoyées}}",
     "formatHint": "PNG, JPG ou HEIC",
+    "imageCountHint": "{count} images sur {max} · la première est la photo principale",
     "letAiDetect": "Laisser l'IA détecter...",
     "nameInputPlaceholder": "ex. Chemise Oxford bleue",
     "namePlaceholder": "Nom (optionnel)",
@@ -43,6 +45,8 @@
     "singleItem": "Article unique",
     "submit": "Ajouter un article",
     "subtitle": "Importez des photos de vos vêtements",
+    "tagsInputPlaceholder": "Ajoutez un tag et appuyez sur Entrée",
+    "tagsLabel": "Tags",
     "title": "Ajouter des articles",
     "typeLabel": "Type (l'IA détectera si vide)",
     "uploading": "Import en cours..."
@@ -106,6 +110,10 @@
   },
   "favorites": "Favoris",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "Images entières — appuyez pour remplir",
+    "fill": "Images étirées — appuyez pour tout afficher"
+  },
   "itemCount": "{count, plural, one {# article dans votre garde-robe} other {# articles dans votre garde-robe}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "Ouvrir dans la garde-robe"
   },
+  "moreTags": "+{count}",
   "needsWash": "À laver",
   "pageSize": "{count} par page",
   "search": "Rechercher des articles...",
+  "selectAll": "Tout sélectionner",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "Récemment portés"
   },
   "title": "Ma Garde-robe",
+  "typesSelected": "{count} types",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

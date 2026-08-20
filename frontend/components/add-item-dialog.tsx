@@ -35,8 +35,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCreateItem, useBulkCreateItems, BulkUploadResponse } from '@/lib/hooks/use-items';
+import { useCreateItem, useBulkCreateItems, useAddItemImages, useItemTags, BulkUploadResponse } from '@/lib/hooks/use-items';
+import { useFeatures } from '@/lib/hooks/use-features';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
+import { TagInput } from '@/components/tag-input';
 import { useTranslations } from 'next-intl';
 
 interface AddItemDialogProps {
@@ -55,14 +57,15 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const tc = useTranslations('common');
   const clothingTypes = useClothingTypes();
   const clothingColors = useClothingColors();
-  // Single upload state
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  // Single upload state - files[0] becomes the item's primary image, the rest are
+  // uploaded to POST /items/{id}/images right after creation.
+  const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [type, setType] = useState('');
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
   const [primaryColor, setPrimaryColor] = useState('');
   const [notes, setNotes] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
 
   // Bulk upload state
   const [bulkFiles, setBulkFiles] = useState<FileWithPreview[]>([]);
@@ -76,6 +79,10 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
   const createItem = useCreateItem();
   const bulkCreateItems = useBulkCreateItems();
+  const addImages = useAddItemImages();
+  const { data: features } = useFeatures();
+  const { data: tagDistribution } = useItemTags();
+  const maxItemImages = features?.max_item_images ?? 20;
 
   // Cleanup blob URLs on unmount to prevent memory leaks
   useEffect(() => {
@@ -85,22 +92,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     };
   }, []);
 
-  // Single file drop handler
-  const onDropSingle = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      setFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  }, []);
-
-  // Bulk file drop handler
-  const onDropBulk = useCallback((acceptedFiles: File[]) => {
-    const newFiles: FileWithPreview[] = acceptedFiles.map((file) => {
+  const withPreviews = useCallback((acceptedFiles: File[]): FileWithPreview[] =>
+    acceptedFiles.map((file) => {
       const preview = URL.createObjectURL(file);
       blobUrlsRef.current.add(preview);
       return {
@@ -108,17 +101,29 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         preview,
         id: `${file.name}-${Date.now()}-${Math.random()}`,
       };
-    });
-    setBulkFiles((prev) => [...prev, ...newFiles]);
+    }), []);
+
+  const revoke = useCallback((f: FileWithPreview) => {
+    URL.revokeObjectURL(f.preview);
+    blobUrlsRef.current.delete(f.preview);
   }, []);
+
+  // Single file drop handler
+  const onDropSingle = useCallback((acceptedFiles: File[]) => {
+    setFiles((prev) => [...prev, ...withPreviews(acceptedFiles)]);
+  }, [withPreviews]);
+
+  // Bulk file drop handler
+  const onDropBulk = useCallback((acceptedFiles: File[]) => {
+    setBulkFiles((prev) => [...prev, ...withPreviews(acceptedFiles)]);
+  }, [withPreviews]);
 
   const { getRootProps: getSingleRootProps, getInputProps: getSingleInputProps, isDragActive: isSingleDragActive } = useDropzone({
     onDrop: onDropSingle,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.webp', '.heic', '.heif'],
     },
-    maxFiles: 1,
-    multiple: false,
+    multiple: true,
   });
 
   const { getRootProps: getBulkRootProps, getInputProps: getBulkInputProps, isDragActive: isBulkDragActive } = useDropzone({
@@ -132,23 +137,42 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!file) return;
+    if (files.length === 0) return;
 
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('image', files[0].file);
     // Type is optional - AI will detect if not provided
     if (type) formData.append('type', type);
     if (name) formData.append('name', name);
     if (brand) formData.append('brand', brand);
     if (primaryColor) formData.append('primary_color', primaryColor);
     if (notes) formData.append('notes', notes);
+    if (tags.length) formData.append('user_tags', tags.join(','));
 
+    let created: { id: string };
     try {
-      await createItem.mutateAsync(formData);
-      handleClose();
+      created = await createItem.mutateAsync(formData);
     } catch (error) {
       console.error('Failed to create item:', error);
+      return;
     }
+
+    // The item exists from here on, so a failed gallery upload must not read as
+    // "nothing was created" - warn and close either way.
+    const rest = files.slice(1).map((f) => f.file);
+    if (rest.length > 0) {
+      try {
+        const result = await addImages.mutateAsync({ itemId: created.id, files: rest });
+        if (result.errors?.length) {
+          toast.warning(t('extraImagesFailed', { count: result.errors.length }));
+        }
+      } catch (error) {
+        console.error('Failed to upload additional images:', error);
+        toast.warning(t('extraImagesFailed', { count: rest.length }));
+      }
+    }
+
+    handleClose();
   };
 
   const handleBulkSubmit = async () => {
@@ -189,11 +213,11 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   };
 
   // Check if there are unsaved files that would be lost on close
-  const hasUnsavedFiles = (file !== null) || (bulkFiles.length > 0 && !bulkResult);
+  const hasUnsavedFiles = files.length > 0 || (bulkFiles.length > 0 && !bulkResult);
 
   const handleCloseRequest = () => {
     // Show confirmation if there are unsaved files and not currently uploading
-    if (hasUnsavedFiles && !createItem.isPending && !bulkCreateItems.isPending) {
+    if (hasUnsavedFiles && !createItem.isPending && !addImages.isPending && !bulkCreateItems.isPending) {
       setShowCloseConfirm(true);
     } else {
       handleClose();
@@ -202,19 +226,17 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
   const handleClose = () => {
     // Single upload cleanup
-    setFile(null);
-    setPreview(null);
+    files.forEach(revoke);
+    setFiles([]);
     setType('');
     setName('');
     setBrand('');
     setPrimaryColor('');
     setNotes('');
+    setTags([]);
 
     // Bulk upload cleanup - also clean up from the ref
-    bulkFiles.forEach((f) => {
-      URL.revokeObjectURL(f.preview);
-      blobUrlsRef.current.delete(f.preview);
-    });
+    bulkFiles.forEach(revoke);
     setBulkFiles([]);
     setBulkResult(null);
     setSkipAi(false);
@@ -224,27 +246,24 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     onOpenChange(false);
   };
 
-  const clearSingleFile = () => {
-    setFile(null);
-    setPreview(null);
+  const removeSingleFile = (id: string) => {
+    setFiles((prev) => {
+      const fileToRemove = prev.find((f) => f.id === id);
+      if (fileToRemove) revoke(fileToRemove);
+      return prev.filter((f) => f.id !== id);
+    });
   };
 
   const removeBulkFile = (id: string) => {
     setBulkFiles((prev) => {
       const fileToRemove = prev.find((f) => f.id === id);
-      if (fileToRemove) {
-        URL.revokeObjectURL(fileToRemove.preview);
-        blobUrlsRef.current.delete(fileToRemove.preview);
-      }
+      if (fileToRemove) revoke(fileToRemove);
       return prev.filter((f) => f.id !== id);
     });
   };
 
   const clearBulkFiles = () => {
-    bulkFiles.forEach((f) => {
-      URL.revokeObjectURL(f.preview);
-      blobUrlsRef.current.delete(f.preview);
-    });
+    bulkFiles.forEach(revoke);
     setBulkFiles([]);
     setBulkResult(null);
     setSkipAi(false);
@@ -270,30 +289,11 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           {/* Single Item Upload */}
           <TabsContent value="single" className="space-y-4">
             <form onSubmit={handleSingleSubmit} className="space-y-4">
-              {!preview ? (
-                <div
-                  {...getSingleRootProps()}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                    isSingleDragActive
-                      ? 'border-primary bg-primary/5'
-                      : 'border-muted-foreground/25 hover:border-primary/50'
-                  }`}
-                >
-                  <input {...getSingleInputProps()} />
-                  <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {isSingleDragActive
-                      ? t('dropzoneActive')
-                      : t('dropzone')}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('formatHint')}
-                  </p>
-                </div>
-              ) : (
+              {/* files[0] is the primary image, the rest become the item's gallery */}
+              {files.length > 0 && (
                 <div className="relative">
                   <img
-                    src={preview}
+                    src={files[0].preview}
                     alt={t('previewAlt')}
                     className="w-full h-48 object-cover rounded-lg"
                   />
@@ -302,10 +302,61 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                     variant="destructive"
                     size="icon"
                     className="absolute top-2 right-2 h-8 w-8"
-                    onClick={clearSingleFile}
+                    onClick={() => removeSingleFile(files[0].id)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
+                </div>
+              )}
+
+              {files.length > 1 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {files.slice(1).map((f) => (
+                    <div key={f.id} className="relative group">
+                      <img
+                        src={f.preview}
+                        alt={f.file.name}
+                        className="w-full aspect-square object-cover rounded-md"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => removeSingleFile(f.id)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {files.length < 1 + maxItemImages && (
+                <div
+                  {...getSingleRootProps()}
+                  className={`border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${
+                    files.length > 0 ? 'p-4' : 'p-8'
+                  } ${
+                    isSingleDragActive
+                      ? 'border-primary bg-primary/5'
+                      : 'border-muted-foreground/25 hover:border-primary/50'
+                  }`}
+                >
+                  <input {...getSingleInputProps()} />
+                  <Upload
+                    className={`mx-auto text-muted-foreground ${files.length > 0 ? 'h-8 w-8' : 'h-12 w-12'}`}
+                  />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {isSingleDragActive
+                      ? t('dropzoneActive')
+                      : t('dropzone')}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {files.length > 0
+                      ? t('imageCountHint', { count: files.length, max: 1 + maxItemImages })
+                      : t('formatHint')}
+                  </p>
                 </div>
               )}
 
@@ -379,6 +430,16 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                     placeholder={t('notesInputPlaceholder')}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label>{t('tagsLabel')}</Label>
+                  <TagInput
+                    value={tags}
+                    onChange={setTags}
+                    suggestions={tagDistribution || []}
+                    placeholder={t('tagsInputPlaceholder')}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -387,9 +448,9 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={!file || createItem.isPending}
+                  disabled={files.length === 0 || createItem.isPending || addImages.isPending}
                 >
-                  {createItem.isPending ? (
+                  {createItem.isPending || addImages.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       {t('uploading')}
@@ -591,7 +652,9 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           <AlertDialogTitle>{t('bulk.discardConfirm.title')}</AlertDialogTitle>
           <AlertDialogDescription>
             {activeTab === 'single'
-              ? t('bulk.discardConfirm.singleImage')
+              ? files.length === 1
+                ? t('bulk.discardConfirm.singleImage')
+                : t('bulk.discardConfirm.imageCount', { count: files.length })
               : t('bulk.discardConfirm.imageCount', { count: bulkFiles.length })}
           </AlertDialogDescription>
         </AlertDialogHeader>

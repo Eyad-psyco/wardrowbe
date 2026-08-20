@@ -54,6 +54,32 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 docker compose exec backend alembic upgrade head
 ```
 
+### Working with the dev containers
+
+The dev override bind-mounts `./frontend` and `./backend` into the containers as `/app`, so the
+containers run your working tree directly. Two things follow from that:
+
+- **Don't run `npm run build` on the host while the stack is up.** It writes a production build
+  into `frontend/.next`, which is where the dev server keeps its own output. A `frontend_next`
+  volume now shields the container from this, but a host build still tells you nothing about
+  what the container is running.
+- **Host `npm install` does not reach the container.** `node_modules` is the
+  `frontend_node_modules` volume, not the host directory. Run checks with
+  `docker compose exec frontend npm test` / `docker compose exec backend pytest` instead.
+
+When a change touches what a container was built from, update it before calling the change done:
+
+| Change | Action |
+|---|---|
+| npm dependency (`frontend/package.json`) | `docker compose restart frontend` — its command is `npm install && npm run dev` |
+| Python dependency (`backend/requirements*.txt`) | rebuild: `docker compose -f docker-compose.yml -f docker-compose.dev.yml build backend worker && ... up -d backend worker` |
+| New Alembic migration | `docker compose exec backend alembic upgrade head` |
+| `Dockerfile*`, `docker-compose*.yml`, or service env | `up -d <service>` with **both** compose files — `restart` reuses the old config |
+| Only `.ts`/`.tsx`/`.py` source | nothing, both services hot-reload |
+
+Then check it came up clean: `docker compose logs <service> --tail 30` should show no
+`Module not found` or `ImportError`.
+
 ### Backend Development
 
 ```bash

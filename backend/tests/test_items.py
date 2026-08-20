@@ -1692,3 +1692,95 @@ class TestCustomTypeWashInterval:
         assert response.status_code == 200
         assert response.json()["wash_interval"] == 9
         assert response.json()["effective_wash_interval"] == 9
+
+class TestCreateItemUserTags:
+    """Feature 2: tags can be set at creation, not only by editing afterwards."""
+
+    @pytest.mark.asyncio
+    async def test_user_tags_form_field_is_normalized(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.post(
+            "/api/v1/items",
+            files={"image": ("shirt.jpg", _make_test_image_bytes(), "image/jpeg")},
+            data={"type": "shirt", "user_tags": " Summer ,summer,", "skip_ai": "true"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 201
+        assert response.json()["user_tags"] == ["summer"]
+
+    @pytest.mark.asyncio
+    async def test_omitting_user_tags_leaves_them_empty(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.post(
+            "/api/v1/items",
+            files={"image": ("pants.jpg", _make_test_image_bytes(), "image/jpeg")},
+            data={"type": "pants", "skip_ai": "true"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 201
+        assert response.json()["user_tags"] == []
+
+
+class TestMultiTypeFilter:
+    """Feature 5: the type filter is multi-select, and bulk select-all honours it."""
+
+    async def _wardrobe(self, db_session: AsyncSession, test_user) -> None:
+        for item_type in ("shirt", "pants", "jacket"):
+            db_session.add(
+                ClothingItem(
+                    user_id=test_user.id,
+                    type=item_type,
+                    image_path=f"test/{item_type}.jpg",
+                    status=ItemStatus.ready,
+                )
+            )
+        await db_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_types_param_filters_to_the_listed_types(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        await self._wardrobe(db_session, test_user)
+
+        response = await client.get("/api/v1/items?types=shirt,pants", headers=auth_headers)
+        assert response.status_code == 200
+        assert sorted(i["type"] for i in response.json()["items"]) == ["pants", "shirt"]
+
+    @pytest.mark.asyncio
+    async def test_omitting_types_returns_everything(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        await self._wardrobe(db_session, test_user)
+
+        response = await client.get("/api/v1/items", headers=auth_headers)
+        assert response.json()["total"] == 3
+
+    @pytest.mark.asyncio
+    async def test_legacy_single_type_param_still_filters(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        await self._wardrobe(db_session, test_user)
+
+        response = await client.get("/api/v1/items?type=shirt", headers=auth_headers)
+        assert [i["type"] for i in response.json()["items"]] == ["shirt"]
+
+    @pytest.mark.asyncio
+    async def test_select_all_delete_respects_the_type_filter(
+        self, client: AsyncClient, auth_headers, db_session: AsyncSession, test_user
+    ):
+        # The regression this guards: select-all used to ignore the type filter and
+        # delete the whole wardrobe.
+        await self._wardrobe(db_session, test_user)
+
+        response = await client.post(
+            "/api/v1/items/bulk/delete",
+            json={"select_all": True, "filters": {"types": ["shirt"]}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["deleted"] == 1
+
+        remaining = await client.get("/api/v1/items", headers=auth_headers)
+        assert sorted(i["type"] for i in remaining.json()["items"]) == ["jacket", "pants"]

@@ -31,7 +31,9 @@
     "bulkUpload": "Mehrere Stücke",
     "dropzone": "Bild hierher ziehen oder tippen zum Auswählen",
     "dropzoneActive": "Bild hier ablegen",
+    "extraImagesFailed": "{count, plural, one {# zusätzliches Bild konnte nicht hochgeladen werden} other {# zusätzliche Bilder konnten nicht hochgeladen werden}}",
     "formatHint": "PNG, JPG oder HEIC",
+    "imageCountHint": "{count} von {max} Bildern · das erste ist das Hauptfoto",
     "letAiDetect": "KI erkennen lassen...",
     "nameInputPlaceholder": "z. B. Blaues Oxford-Hemd",
     "namePlaceholder": "Name (optional)",
@@ -43,6 +45,8 @@
     "singleItem": "Einzelnes Stück",
     "submit": "Stück hinzufügen",
     "subtitle": "Lade Fotos deiner Kleidungsstücke hoch",
+    "tagsInputPlaceholder": "Tag eingeben und Enter drücken",
+    "tagsLabel": "Tags",
     "title": "Stücke hinzufügen",
     "typeLabel": "Typ (die KI erkennt ihn, wenn leer)",
     "uploading": "Wird hochgeladen..."
@@ -106,6 +110,10 @@
   },
   "favorites": "Favoriten",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "Ganze Bilder – tippen zum Ausfüllen",
+    "fill": "Bilder ausgefüllt – tippen für ganze Bilder"
+  },
   "itemCount": "{count, plural, one {# Stück in deinem Kleiderschrank} other {# Stücke in deinem Kleiderschrank}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "Im Kleiderschrank öffnen"
   },
+  "moreTags": "+{count}",
   "needsWash": "Muss gewaschen werden",
   "pageSize": "{count} pro Seite",
   "search": "Stücke suchen...",
+  "selectAll": "Alle auswählen",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "Kürzlich getragen"
   },
   "title": "Mein Kleiderschrank",
+  "typesSelected": "{count} Typen",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

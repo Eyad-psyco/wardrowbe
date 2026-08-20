@@ -4,19 +4,65 @@
 
 Tick as each lands.
 
-- [ ] **§1** Multiple images in the single-item create modal (frontend only)
-- [ ] **§2** Tags in the create modal (`user_tags` Form param + `TagInput`)
-- [ ] **§3** `TagInput` upgrades — suggest on focus, floating list, counts
-- [ ] **§4** Tags on the wardrobe card + `+N` popover (new `ui/popover.tsx`)
-- [ ] **§5** Multi-select type filter, incl. bulk `select_all` parity
-- [ ] **§6** Fit / Fill toggle so card images aren't cropped
-- [ ] **§7** Hover auto-advance on multi-image cards (desktop)
-- [ ] i18n keys + `npm run i18n:check`
-- [ ] verification pass (§ Verification)
+- [x] **§1** Multiple images in the single-item create modal (frontend only)
+- [x] **§2** Tags in the create modal (`user_tags` Form param + `TagInput`)
+- [x] **§3** `TagInput` upgrades — suggest on focus, floating list, counts
+- [x] **§4** Tags on the wardrobe card + `+N` popover (new `ui/popover.tsx`)
+- [x] **§5** Multi-select type filter, incl. bulk `select_all` parity
+- [x] **§6** Fit / Fill toggle so card images aren't cropped
+- [x] **§7** Hover auto-advance on multi-image cards (desktop)
+- [x] i18n keys + `npm run i18n:check`
+- [x] verification pass (§ Verification)
 
 ### Deviations from the plan
 
-_(record any here as they happen)_
+- **§4, the `+N` trigger is a styled `PopoverTrigger`, not `<PopoverTrigger asChild><Badge>`.**
+  `Badge` (`ui/badge.tsx`) is a plain function component with no `forwardRef`, so `asChild` has
+  no ref to hand it and Radix cannot anchor the content. Styling the trigger's own `<button>`
+  is a smaller change than adding `forwardRef` to a shared primitive, and it gets keyboard
+  focus for free.
+- **§4, the trigger's `onClick` only calls `stopPropagation()`, not `preventDefault()`.**
+  Radix composes trigger handlers with `checkForDefaultPrevented`, so `preventDefault()` would
+  have killed the click/touch toggle the plan asked for. `stopPropagation()` alone is what
+  keeps the card's detail dialog from opening.
+- **§5, one "Select all" button instead of "Select all" / "Select none".** With empty ⇒ all
+  (and the backend never receiving an empty `types`), "select none" and "select all" are the
+  same query, so shipping both would be two buttons doing one thing. The single button clears
+  the selection; a full selection normalizes back to `[]` so the URL stays short. `wardrobe.selectNone`
+  was therefore not added.
+- **§5, `?type=` is deleted from the URL on sync.** The plan only said the legacy param seeds
+  the initial state; leaving it in place would have kept a stale single-type value in every
+  shared link. It is read once, then dropped in favour of `types`.
+- **i18n was not English-only.** `npm run i18n:parity` is a hard gate that requires every key
+  in all 8 locales, so the nine new keys were translated into de/fr/it/ja/ko/zh-CN/zh-TW too.
+- **The `add-item-dialog` blob-URL helpers were shared rather than duplicated.** Both tabs now
+  build previews through one `withPreviews` and release them through one `revoke`, instead of
+  the single tab getting its own copy of the bulk tab's code.
+
+### Verification results
+
+- `docker compose exec backend pytest tests/test_items.py`: 55 passed, 16 failed — the same 16
+  that fail on a clean tree (they assert `status == "processing"`, which needs AI vision
+  enabled). All six new tests pass.
+- `npx tsc --noEmit`, `npm test` (143 passed), `npm run build`: clean.
+- `npm run i18n:keys` and `npm run i18n:parity`: OK. `npm run i18n:scan` still fails on the
+  pre-existing untranslated "Close" in `components/ui/dialog.tsx`.
+
+### Fallout from verifying on the host instead of in the container
+
+Both frontend checks were run on the host, which broke the running dev stack — `./frontend` is
+bind-mounted to `/app`, so `npm run build` replaced the dev server's `.next` with a production
+build (it then 404'd `_next/static/css/app/layout.css`), and `npm install @radix-ui/react-popover`
+went to the host `node_modules` rather than the `frontend_node_modules` volume the container uses.
+
+Fixed by clearing `.next` and restarting the frontend (its command is `npm install && npm run dev`),
+then hardened so it cannot recur:
+
+- `docker-compose.dev.yml` gained a `frontend_next` volume on `/app/.next`, mirroring the existing
+  `frontend_node_modules` one, so a host-side build can no longer reach the dev server's output.
+  Verified by running `npm run build` on the host with the stack up: the app kept serving 200s.
+- `CLAUDE.md` gained a **Dev containers** section with the verify-in-container commands and a table
+  of which change requires a restart, a rebuild, or a migration.
 
 ## Context
 

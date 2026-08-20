@@ -214,6 +214,8 @@ class ItemListResponse(BaseModel):
 
 class ItemFilter(BaseModel):
     type: str | None = None
+    # Multi-select; `type` stays for the single-value callers that still pass it.
+    types: list[str] | None = None
     subtype: str | None = None
     colors: list[str] | None = None
     tags: list[str] | None = None
@@ -255,7 +257,7 @@ class BulkUploadResponse(BaseModel):
 
 
 class BulkFilters(BaseModel):
-    type: str | None = None
+    types: list[str] | None = None
     search: str | None = None
     is_archived: bool | None = None
 

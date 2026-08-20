@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Plus, Search, Heart, Grid3X3, Loader2, AlertCircle, RefreshCw, Droplets, ArrowUpDown, SlidersHorizontal, X, Users } from 'lucide-react';
+import { Plus, Search, Heart, Grid3X3, Loader2, AlertCircle, RefreshCw, Droplets, ArrowUpDown, SlidersHorizontal, X, Users, Crop, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -22,6 +22,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { ItemDetailDialog } from '@/components/item-detail-dialog';
 import { ImageCarousel } from '@/components/image-carousel';
@@ -65,6 +70,7 @@ function ItemCard({
   onDismissError,
   errorDismissed,
   userTimezone,
+  imageFit,
   readOnly = false,
 }: {
   item: Item;
@@ -76,6 +82,7 @@ function ItemCard({
   onDismissError?: (id: string) => void;
   errorDismissed?: boolean;
   userTimezone: string;
+  imageFit: 'contain' | 'cover';
   readOnly?: boolean;
 }) {
   const t = useTranslations('wardrobe');
@@ -92,6 +99,20 @@ function ItemCard({
       url: img.thumbnail_url || img.image_url,
     })),
   ].filter(Boolean) as Array<{ id: string; url: string }>;
+  const imageCount = carouselImages.length;
+  const [imgIndex, setImgIndex] = useState(0);
+  const [hovering, setHovering] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const userTags = item.user_tags || [];
+
+  // Cycling on hover is what makes a multi-image card look different from a single-image
+  // one. Only the active slide is mounted, so the first pass fetches as it goes.
+  useEffect(() => {
+    if (!hovering || imageCount < 2) return;
+    const id = setInterval(() => setImgIndex((i) => (i + 1) % imageCount), 1200);
+    return () => clearInterval(id);
+  }, [hovering, imageCount]);
+
   // Overlays are owner-only actions; a shared wardrobe never shows processing/error state
   const isProcessing = !readOnly && item.status === 'processing';
   const isError = !readOnly && item.status === 'error' && !errorDismissed;
@@ -107,11 +128,25 @@ function ItemCard({
       }`}
       onClick={onClick}
     >
-      <div className="relative aspect-square bg-muted">
+      <div
+        className="relative aspect-square bg-muted"
+        onMouseEnter={() => {
+          // A tap on a phone fires mouseenter too, which would leave a timer running
+          // behind the detail dialog it just opened.
+          if (window.matchMedia('(hover: hover)').matches) setHovering(true);
+        }}
+        onMouseLeave={() => {
+          setHovering(false);
+          setImgIndex(0);
+        }}
+      >
         {carouselImages.length > 0 ? (
           <ImageCarousel
             images={carouselImages}
             alt={item.name || item.type}
+            className={imageFit === 'cover' ? 'object-cover' : 'object-contain'}
+            index={imgIndex}
+            onIndexChange={setImgIndex}
             sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
           />
         ) : (
@@ -250,6 +285,49 @@ function ItemCard({
             </TooltipProvider>
           )}
         </div>
+        {userTags.length > 0 && (
+          <div className="flex items-center gap-1 mt-1.5 overflow-hidden">
+            {/* ponytail: fixed 2 visible tags, measure with ResizeObserver only if the
+                truncation looks bad at real widths */}
+            {userTags.slice(0, 2).map((tag) => (
+              <Badge
+                key={tag}
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 font-normal truncate min-w-0 max-w-[6rem]"
+              >
+                {tag}
+              </Badge>
+            ))}
+            {userTags.length > 2 && (
+              <Popover open={tagsOpen} onOpenChange={setTagsOpen}>
+                {/* Badge isn't a forwardRef component, so this styles the trigger button
+                    itself rather than using asChild. */}
+                <PopoverTrigger
+                  className="inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] text-foreground hover:bg-accent"
+                  onMouseEnter={() => setTagsOpen(true)}
+                  // The whole card opens the detail dialog, so the badge must not bubble.
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {t('moreTags', { count: userTags.length - 2 })}
+                </PopoverTrigger>
+                {/* Portaled, so the card's overflow-hidden doesn't clip it */}
+                <PopoverContent
+                  align="start"
+                  className="w-auto max-w-[16rem] p-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex flex-wrap gap-1">
+                    {userTags.map((tag) => (
+                      <Badge key={tag} variant="secondary" className="text-[10px] font-normal">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+        )}
         {item.last_worn_at ? (
           <p className={`text-xs mt-1 ${getWornAgoColorClass(item.last_worn_at, userTimezone)}`}>
             {formatWornAgo(item.last_worn_at, userTimezone, t)}
@@ -317,7 +395,14 @@ export default function WardrobePage() {
   });
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
   const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
-  const [typeFilter, setTypeFilter] = useState<string>(() => searchParams.get('type') ?? 'all');
+  // Empty means "every type", i.e. no constraint sent - same as today's "all".
+  const [typeFilter, setTypeFilter] = useState<string[]>(() => {
+    const raw = searchParams.get('types');
+    if (raw) return raw.split(',').filter(Boolean);
+    // Legacy ?type=shirt links keep working.
+    const legacy = searchParams.get('type');
+    return legacy && legacy !== 'all' ? [legacy] : [];
+  });
   const [sortIndex, setSortIndex] = useState(() => {
     const raw = Number(searchParams.get('sort'));
     return Number.isInteger(raw) && raw >= 0 && raw < SORT_OPTIONS.length ? raw : 0;
@@ -342,6 +427,14 @@ export default function WardrobePage() {
     const raw = Number(searchParams.get('pageSize'));
     return PAGE_SIZE_OPTIONS.includes(raw) ? raw : 20;
   });
+  const [imageFit, setImageFit] = useState<'contain' | 'cover'>(() => {
+    if (typeof window === 'undefined') return 'contain';
+    try {
+      return window.localStorage.getItem('wardrobe-image-fit') === 'cover' ? 'cover' : 'contain';
+    } catch {
+      return 'contain';
+    }
+  });
   const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
     try {
@@ -363,6 +456,14 @@ export default function WardrobePage() {
     }
   }, [dismissedErrors]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('wardrobe-image-fit', imageFit);
+    } catch {
+      // because localStorage can be unavailable (private browsing, quota), the choice just won't persist
+    }
+  }, [imageFit]);
+
   // Open item detail dialog from URL param (e.g. ?item=uuid from outfit pages)
   useEffect(() => {
     const itemParam = searchParams.get('item');
@@ -376,7 +477,8 @@ export default function WardrobePage() {
     const params = new URLSearchParams(searchParams.toString());
 
     if (search) params.set('search', search); else params.delete('search');
-    if (typeFilter !== 'all') params.set('type', typeFilter); else params.delete('type');
+    if (typeFilter.length) params.set('types', typeFilter.join(',')); else params.delete('types');
+    params.delete('type'); // superseded by `types`; drop it so a legacy link rewrites itself
     if (sortIndex !== 0) params.set('sort', String(sortIndex)); else params.delete('sort');
     if (needsWash) params.set('needsWash', 'true'); else params.delete('needsWash');
     if (favoriteFilter) params.set('favorite', 'true'); else params.delete('favorite');
@@ -399,7 +501,7 @@ export default function WardrobePage() {
 
   const filters = {
     search: search || undefined,
-    type: typeFilter !== 'all' ? typeFilter : undefined,
+    types: typeFilter.length ? typeFilter : undefined,
     needs_wash: needsWash,
     favorite: favoriteFilter,
     tags: tagFilter.length ? tagFilter : undefined,
@@ -412,7 +514,7 @@ export default function WardrobePage() {
   const activeFilterCount = [
     needsWash !== undefined,
     favoriteFilter !== undefined,
-    typeFilter !== 'all',
+    typeFilter.length > 0,
     tagFilter.length > 0,
   ].filter(Boolean).length;
 
@@ -522,7 +624,7 @@ export default function WardrobePage() {
         select_all: true,
         excluded_ids: Array.from(selection.excludedIds),
         filters: {
-          type: typeFilter !== 'all' ? typeFilter : undefined,
+          types: typeFilter.length ? typeFilter : undefined,
           search: search || undefined,
           needs_wash: needsWash,
           favorite: favoriteFilter,
@@ -686,6 +788,15 @@ export default function WardrobePage() {
               </SelectContent>
             </Select>
             <Button
+              variant={imageFit === 'cover' ? 'default' : 'outline'}
+              size="icon"
+              className="shrink-0"
+              title={t(imageFit === 'cover' ? 'imageFit.cover' : 'imageFit.contain')}
+              onClick={() => setImageFit((f) => (f === 'cover' ? 'contain' : 'cover'))}
+            >
+              <Crop className="h-4 w-4" />
+            </Button>
+            <Button
               variant={showFilters || activeFilterCount > 0 ? 'default' : 'outline'}
               size="icon"
               className="shrink-0 relative"
@@ -704,25 +815,61 @@ export default function WardrobePage() {
         {/* Expandable filter row */}
         {showFilters && (
           <div className="flex flex-wrap gap-2 items-center p-3 rounded-lg border bg-muted/30">
-            <Select
-              value={typeFilter}
-              onValueChange={(value) => {
-                setTypeFilter(value);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-[150px] h-8 text-xs">
-                <SelectValue placeholder={t('allTypes')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('allTypes')}</SelectItem>
-                {clothingTypes.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="w-[150px] h-8 text-xs justify-between font-normal">
+                  <span className="truncate">
+                    {typeFilter.length === 0
+                      ? t('allTypes')
+                      : typeFilter.length === 1
+                        ? clothingTypes.find((ct) => ct.value === typeFilter[0])?.label ?? typeFilter[0]
+                        : t('typesSelected', { count: typeFilter.length })}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-full text-xs"
+                  onClick={() => {
+                    setTypeFilter([]);
+                    setPage(1);
+                  }}
+                >
+                  {t('selectAll')}
+                </Button>
+                <div className="mt-1 max-h-60 overflow-auto">
+                  {clothingTypes.map((type) => (
+                    <label
+                      key={type.value}
+                      className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={typeFilter.length === 0 || typeFilter.includes(type.value)}
+                        onCheckedChange={(checked) => {
+                          setTypeFilter((prev) => {
+                            // Unchecking from the "all" state means all-but-this-one.
+                            const base = prev.length ? prev : clothingTypes.map((ct) => ct.value);
+                            const next =
+                              checked === true
+                                ? [...base, type.value]
+                                : base.filter((v) => v !== type.value);
+                            // Everything selected is the same query as nothing selected, and
+                            // the empty form keeps it out of the URL. Unchecking the last
+                            // remaining type lands there too, so the grid is never empty.
+                            return next.length === clothingTypes.length ? [] : next;
+                          });
+                          setPage(1);
+                        }}
+                      />
+                      <span className="truncate">{type.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
 
             <Select
               value={String(pageSize)}
@@ -776,7 +923,7 @@ export default function WardrobePage() {
                   setTagFilter(tags);
                   setPage(1);
                 }}
-                suggestions={(tagDistribution || []).map((entry) => entry.tag)}
+                suggestions={tagDistribution || []}
                 placeholder={t('filterByTag')}
               />
             </div>
@@ -787,7 +934,7 @@ export default function WardrobePage() {
                 size="sm"
                 className="h-8 text-xs gap-1 ml-auto"
                 onClick={() => {
-                  setTypeFilter('all');
+                  setTypeFilter([]);
                   setNeedsWash(undefined);
                   setFavoriteFilter(undefined);
                   setTagFilter([]);
@@ -822,7 +969,7 @@ export default function WardrobePage() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        search || typeFilter !== 'all' || needsWash !== undefined || favoriteFilter !== undefined || tagFilter.length > 0 || isSharedView ? (
+        search || typeFilter.length > 0 || needsWash !== undefined || favoriteFilter !== undefined || tagFilter.length > 0 || isSharedView ? (
           <div className="text-center py-8">
             <p className="text-muted-foreground">
               {t('errors.noItemsFound')}
@@ -832,7 +979,7 @@ export default function WardrobePage() {
               className="mt-4"
               onClick={() => {
                 setSearch('');
-                setTypeFilter('all');
+                setTypeFilter([]);
                 setNeedsWash(undefined);
                 setFavoriteFilter(undefined);
                 setTagFilter([]);
@@ -864,6 +1011,7 @@ export default function WardrobePage() {
                 onDismissError={isSharedView ? undefined : handleDismissError}
                 errorDismissed={dismissedErrors.has(`${item.id}:${item.updated_at}`)}
                 userTimezone={userTimezone}
+                imageFit={imageFit}
                 readOnly={isSharedView}
               />
             );

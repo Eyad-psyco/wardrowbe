@@ -96,6 +96,7 @@ async def list_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     type: str | None = None,
+    types: str | None = None,
     subtype: str | None = None,
     colors: str | None = None,
     tags: str | None = None,
@@ -111,9 +112,11 @@ async def list_items(
 ) -> ItemListResponse:
     color_list = colors.split(",") if colors else None
     tag_list = tags.split(",") if tags else None
+    type_list = [t for t in types.split(",") if t] if types else None
 
     filters = ItemFilter(
         type=type,
+        types=type_list,
         subtype=subtype,
         colors=color_list,
         tags=tag_list,
@@ -163,6 +166,7 @@ async def create_item(
     notes: str | None = Form(None),
     colors: str | None = Form(None),
     primary_color: str | None = Form(None),
+    user_tags: str | None = Form(None),
     favorite: bool = Form(False),
     skip_ai: bool = Form(False),
 ) -> ItemResponse:
@@ -209,6 +213,7 @@ async def create_item(
 
     # Parse colors from comma-separated string
     color_list = colors.split(",") if colors else None
+    user_tag_list = user_tags.split(",") if user_tags else None
 
     # Create item - use "unknown" if type not provided (AI will detect)
     item_data = ItemCreate(
@@ -219,6 +224,7 @@ async def create_item(
         notes=notes,
         colors=color_list,
         primary_color=primary_color,
+        user_tags=user_tag_list,
         favorite=favorite,
     )
 
@@ -493,7 +499,7 @@ async def bulk_delete_items(
         # Get all items matching filters, excluding specified ones
         item_ids = await item_service.get_ids_by_filter(
             user_id=current_user.id,
-            type_filter=request.filters.type if request.filters else None,
+            types=request.filters.types if request.filters else None,
             search=request.filters.search if request.filters else None,
             is_archived=request.filters.is_archived
             if request.filters and request.filters.is_archived is not None
@@ -546,7 +552,7 @@ async def bulk_analyze_items(
     if request.select_all:
         item_ids = await item_service.get_ids_by_filter(
             user_id=current_user.id,
-            type_filter=request.filters.type if request.filters else None,
+            types=request.filters.types if request.filters else None,
             search=request.filters.search if request.filters else None,
             is_archived=request.filters.is_archived
             if request.filters and request.filters.is_archived is not None

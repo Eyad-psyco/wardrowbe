@@ -85,6 +85,8 @@ export interface TaggingProgress {
 
 export interface ItemFilter {
   type?: string;
+  // Multi-select type filter; `type` stays for the single-value callers.
+  types?: string[];
   subtype?: string;
   colors?: string[];
   tags?: string[];

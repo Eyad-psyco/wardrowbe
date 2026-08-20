@@ -31,7 +31,9 @@
     "bulkUpload": "批量上传",
     "dropzone": "拖放图片，或点击选择",
     "dropzoneActive": "将图片拖放到这里",
+    "extraImagesFailed": "{count, plural, other {有 # 张附加图片上传失败}}",
     "formatHint": "PNG、JPG 或 HEIC",
+    "imageCountHint": "{max} 张中的 {count} 张 · 第一张为主图",
     "letAiDetect": "由 AI 识别...",
     "nameInputPlaceholder": "例如：蓝色牛津衬衫",
     "namePlaceholder": "名称（选填）",
@@ -43,6 +45,8 @@
     "singleItem": "单件",
     "submit": "添加单品",
     "subtitle": "上传你的衣物照片",
+    "tagsInputPlaceholder": "输入标签后按回车",
+    "tagsLabel": "标签",
     "title": "添加单品",
     "typeLabel": "类型（留空则由 AI 检测）",
     "uploading": "上传中..."
@@ -106,6 +110,10 @@
   },
   "favorites": "收藏",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "完整显示图片 — 点按可铺满",
+    "fill": "图片已拉伸铺满 — 点按可完整显示"
+  },
   "itemCount": "{count, plural, one {衣柜中有 # 件单品} other {衣柜中有 # 件单品}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "在衣橱中打开"
   },
+  "moreTags": "+{count}",
   "needsWash": "需要清洗",
   "pageSize": "每页 {count} 件",
   "search": "搜索单品...",
+  "selectAll": "全选",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "最近穿过"
   },
   "title": "我的衣柜",
+  "typesSelected": "已选 {count} 种类型",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

@@ -31,7 +31,9 @@
     "bulkUpload": "Bulk Upload",
     "dropzone": "Drag & drop an image, or tap to select",
     "dropzoneActive": "Drop the image here",
+    "extraImagesFailed": "{count, plural, one {# extra image} other {# extra images}} could not be uploaded",
     "formatHint": "PNG, JPG, or HEIC",
+    "imageCountHint": "{count} of {max} images · the first one is the main photo",
     "letAiDetect": "Let AI detect...",
     "nameInputPlaceholder": "e.g., Blue Oxford Shirt",
     "namePlaceholder": "Name (optional)",
@@ -43,6 +45,8 @@
     "singleItem": "Single Item",
     "submit": "Add Item",
     "subtitle": "Upload photos of your clothing items",
+    "tagsInputPlaceholder": "Add a tag and press Enter",
+    "tagsLabel": "Tags",
     "title": "Add Items",
     "typeLabel": "Type (AI will detect if empty)",
     "uploading": "Uploading..."
@@ -106,6 +110,10 @@
   },
   "favorites": "Favorites",
   "filterByTag": "Filter by tag",
+  "imageFit": {
+    "contain": "Showing whole images — tap to fill the tile",
+    "fill": "Stretching images to fill — tap to show whole"
+  },
   "itemCount": "{count, plural, one {# item in your wardrobe} other {# items in your wardrobe}}",
   "itemDetail": {
     "actions": {
@@ -202,9 +210,11 @@
   "lightbox": {
     "openInWardrobe": "Open in Wardrobe"
   },
+  "moreTags": "+{count}",
   "needsWash": "Needs wash",
   "pageSize": "{count} per page",
   "search": "Search items...",
+  "selectAll": "Select all",
   "shared": {
     "memberWardrobe": "{name}'s wardrobe",
     "myWardrobe": "My wardrobe",
@@ -221,6 +231,7 @@
     "recentlyWorn": "Recently worn"
   },
   "title": "My Wardrobe",
+  "typesSelected": "{count} types",
   "uploadQueue": {
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",

@@ -58,6 +58,8 @@ class ItemService:
         # Apply filters
         if filters.type:
             query = query.where(ClothingItem.type == filters.type)
+        if filters.types:
+            query = query.where(ClothingItem.type.in_(filters.types))
         if filters.subtype:
             query = query.where(ClothingItem.subtype == filters.subtype)
         if filters.status:
@@ -121,15 +123,15 @@ class ItemService:
     async def get_ids_by_filter(
         self,
         user_id: UUID,
-        type_filter: str | None = None,
+        types: list[str] | None = None,
         search: str | None = None,
         is_archived: bool = False,
         excluded_ids: list[UUID] | None = None,
     ) -> list[UUID]:
         query = select(ClothingItem.id).where(ClothingItem.user_id == user_id)
 
-        if type_filter:
-            query = query.where(ClothingItem.type == type_filter)
+        if types:
+            query = query.where(ClothingItem.type.in_(types))
 
         query = query.where(ClothingItem.is_archived == is_archived)
 
