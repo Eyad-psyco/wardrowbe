@@ -1,0 +1,39 @@
+# TLS for a public VPS.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
+#
+# Caddy terminates HTTPS and proxies to the existing nginx, getting and renewing
+# Let's Encrypt certificates on its own. Authentication is handled by the app
+# itself (email + password, and OIDC if configured), so there is no identity
+# provider to run here.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: wardrobe_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nginx
+    networks:
+      - wardrobe_net
+
+  frontend:
+    environment:
+      # docker-compose.prod.yml sets this to "0" for self-signed internal OIDC.
+      # On a public VPS the certificate is a real one, and "0" would disable TLS
+      # verification for every outbound request the frontend makes.
+      NODE_TLS_REJECT_UNAUTHORIZED: "1"
+
+volumes:
+  caddy_data:
+  caddy_config:

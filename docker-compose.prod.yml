@@ -38,7 +38,7 @@ services:
 
   # FastAPI Backend
   backend:
-    image: ghcr.io/anyesh/wardrowbe:backend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${IMAGE_TAG:-backend-latest}
     container_name: wardrobe_backend
     restart: unless-stopped
     extra_hosts:
@@ -60,13 +60,11 @@ services:
       AI_TEXT_ENABLED: ${AI_TEXT_ENABLED:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      # OIDC (set these if using OIDC instead of forward auth)
+      PASSWORD_AUTH_ENABLED: ${PASSWORD_AUTH_ENABLED:-true}
+      # OIDC — the only production auth method
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      # Auth header from TinyAuth
-      AUTH_TRUST_HEADER: ${AUTH_TRUST_HEADER:-true}
-      AUTH_HEADER_NAME: "Remote-User"
       # Notifications (default ntfy for form pre-fill)
       NTFY_SERVER: ${NTFY_SERVER:-}
       NTFY_TOPIC: ${NTFY_TOPIC:-}
@@ -94,7 +92,7 @@ services:
 
   # arq Worker for background jobs
   worker:
-    image: ghcr.io/anyesh/wardrowbe:backend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${IMAGE_TAG:-backend-latest}
     container_name: wardrobe_worker
     restart: unless-stopped
     command: arq app.workers.worker.WorkerSettings
@@ -137,7 +135,7 @@ services:
 
   # Next.js Frontend
   frontend:
-    image: ghcr.io/anyesh/wardrowbe:frontend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${FRONTEND_IMAGE_TAG:-frontend-latest}
     container_name: wardrobe_frontend
     restart: unless-stopped
     extra_hosts:
@@ -157,6 +155,7 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_END_SESSION_URL: ${OIDC_END_SESSION_URL:-}
+      PASSWORD_AUTH_ENABLED: ${PASSWORD_AUTH_ENABLED:-true}
       # Trust self-signed certs for internal OIDC provider
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
     depends_on:
@@ -169,7 +168,7 @@ services:
     networks:
       - wardrobe_net
   # Nginx reverse proxy (internal routing)
-  # Auth is handled by external proxy (TinyAuth/Authentik/OIDC)
+  # Auth is enforced by the app itself (OIDC bearer tokens); this proxy only routes.
   nginx:
     image: nginx:alpine
     container_name: wardrobe_nginx

@@ -61,6 +61,7 @@ class UserSyncResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    external_id: str
     email: str
     display_name: str
     is_new_user: bool
@@ -92,3 +93,4 @@ class AuthConfigOIDC(BaseModel):
 class AuthConfigResponse(BaseModel):
     oidc: AuthConfigOIDC
     dev_mode: bool = False
+    password_enabled: bool = True

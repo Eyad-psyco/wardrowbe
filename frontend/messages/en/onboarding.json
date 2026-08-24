@@ -45,6 +45,7 @@
     "saveError": "Failed to save location. Please try again.",
     "title": "Your Location"
   },
+  "signOut": "Sign out",
   "skipForNow": "Skip for now",
   "steps": {
     "family": "Family",

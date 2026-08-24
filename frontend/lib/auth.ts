@@ -82,6 +82,55 @@ const DevCredentialsProvider = CredentialsProvider({
     };
   },
 });
+// Email + password against the backend's own account store. The backend owns
+// the credential check and issues the API token, so this provider does not go
+// through /auth/sync the way OIDC and dev login do.
+const PasswordProvider = CredentialsProvider({
+  id: 'password',
+  name: 'Email and password',
+  credentials: {
+    email: { label: 'Email', type: 'email', placeholder: 'you@example.com' },
+    password: { label: 'Password', type: 'password' },
+  },
+  async authorize(credentials) {
+    if (!credentials?.email || !credentials?.password) {
+      return null;
+    }
+
+    const apiUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000';
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: credentials.email,
+          password: credentials.password,
+        }),
+      });
+
+      if (!response.ok) {
+        // Wrong credentials, inactive account, or rate limited. Deliberately
+        // indistinguishable to the caller.
+        return null;
+      }
+
+      const data = await response.json();
+      return {
+        id: data.external_id,
+        email: data.email,
+        name: data.display_name,
+        image: null,
+        backendToken: data.access_token,
+        onboardingCompleted: data.onboarding_completed,
+      };
+    } catch (error) {
+      console.error('Password sign-in failed:', error);
+      return null;
+    }
+  },
+});
+
 // Determine which provider to use
 function getProviders() {
   const providers = [];
@@ -92,6 +141,11 @@ function getProviders() {
 
   if (process.env.DEV_MODE === 'true' || process.env.NODE_ENV === 'development') {
     providers.push(DevCredentialsProvider);
+  }
+
+  // On unless explicitly disabled, mirroring the backend's PASSWORD_AUTH_ENABLED.
+  if (process.env.PASSWORD_AUTH_ENABLED !== 'false') {
+    providers.push(PasswordProvider);
   }
   return providers;
 }
@@ -126,6 +180,21 @@ export const authOptions: NextAuthOptions = {
 
       // Initial sign in - sync with backend and get API token
       if (user) {
+        // Password sign-in already carries a backend token from /auth/login;
+        // /auth/sync would reject it (no id_token, not dev mode).
+        const passwordToken = (user as { backendToken?: string }).backendToken;
+        if (passwordToken) {
+          return {
+            ...token,
+            accessToken: passwordToken,
+            sub: user.id,
+            backendUserId: user.id,
+            isNewUser: false,
+            onboardingCompleted:
+              (user as { onboardingCompleted?: boolean }).onboardingCompleted ?? false,
+          };
+        }
+
         try {
           const response = await fetch(`${apiUrl}/api/v1/auth/sync`, {
             method: 'POST',

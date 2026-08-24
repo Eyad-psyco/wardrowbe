@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { signOut } from 'next-auth/react';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Sidebar } from '@/components/sidebar';
@@ -14,6 +15,10 @@ import { ImageLightbox } from '@/components/image-lightbox';
 import { LightboxProvider } from '@/lib/lightbox-context';
 import { useAuth } from '@/lib/hooks/use-auth';
 
+// If auth resolution hangs (stale session cookie, a wedged fetch), this is the
+// only way out of the spinner otherwise offered to the user.
+const STUCK_LOADING_MS = 8000;
+
 export default function DashboardLayout({
   children,
 }: {
@@ -24,6 +29,7 @@ export default function DashboardLayout({
   const t = useTranslations('dashboard');
 
   const { user, isAuthenticated, isLoading, error } = useAuth();
+  const [stuck, setStuck] = useState(false);
 
   useEffect(() => {
     // If auth check completed and user is not authenticated, redirect to login
@@ -39,12 +45,33 @@ export default function DashboardLayout({
     }
   }, [user, router]);
 
+  useEffect(() => {
+    if (!isLoading) {
+      setStuck(false);
+      return;
+    }
+    const timer = setTimeout(() => setStuck(true), STUCK_LOADING_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">{t('layout.loading')}</p>
+          {stuck && (
+            <div className="flex flex-col items-center gap-2 pt-2 text-center">
+              <p className="text-sm text-muted-foreground">{t('layout.stuckMessage')}</p>
+              <button
+                type="button"
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('layout.stuckSignIn')}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

@@ -88,6 +88,71 @@ function DevLogin({ callbackUrl }: { callbackUrl: string }) {
   );
 }
 
+function PasswordLogin({ callbackUrl }: { callbackUrl: string }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const t = useTranslations('auth');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    // Failures come back as ?error=CredentialsSignin, which this page already renders.
+    await signIn('password', { email, password, callbackUrl });
+    setIsLoading(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <label htmlFor="password-email" className="block text-sm font-medium">
+          {t('email')}
+        </label>
+        <input
+          id="password-email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          placeholder="you@example.com"
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="password-password" className="block text-sm font-medium">
+          {t('password')}
+        </label>
+        <input
+          id="password-password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={isLoading}
+        className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('signingIn')}
+          </>
+        ) : (
+          t('title')
+        )}
+      </button>
+    </form>
+  );
+}
+
 function BackendError({ message }: { message: string }) {
   const t = useTranslations('auth');
 
@@ -131,21 +196,25 @@ function LoginContent() {
 
   const syncError = syncErrorParam || session?.syncError;
 
-  const [authMode, setAuthMode] = useState<'loading' | 'oidc' | 'dev' | 'unconfigured'>('loading');
+  // More than one of these can be live at once (password alongside SSO), so
+  // this tracks each independently rather than picking a single mode.
+  const [available, setAvailable] = useState<{
+    oidc: boolean;
+    dev: boolean;
+    password: boolean;
+  } | null>(null);
 
   useEffect(() => {
     getProviders().then((providers) => {
-      if (providers?.['oidc']) {
-        setAuthMode('oidc');
-      } else if (providers?.['dev-credentials']) {
-        setAuthMode('dev');
-      } else {
-        setAuthMode('unconfigured');
-      }
+      setAvailable({
+        oidc: Boolean(providers?.['oidc']),
+        dev: Boolean(providers?.['dev-credentials']),
+        password: Boolean(providers?.['password']),
+      });
     });
   }, []);
 
-  if (status === 'loading' || authMode === 'loading') {
+  if (status === 'loading' || !available) {
     return (
       <div className="space-y-4 animate-pulse">
         <div className="h-12 bg-muted rounded-md" />
@@ -173,9 +242,20 @@ function LoginContent() {
       )}
 
       <div className="space-y-4">
-        {authMode === 'oidc' && <OIDCLoginButton callbackUrl={callbackUrl} />}
-        {authMode === 'dev' && <DevLogin callbackUrl={callbackUrl} />}
-        {authMode === 'unconfigured' && (
+        {available.password && <PasswordLogin callbackUrl={callbackUrl} />}
+        {available.password && available.oidc && (
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">{t('or')}</span>
+            </div>
+          </div>
+        )}
+        {available.oidc && <OIDCLoginButton callbackUrl={callbackUrl} />}
+        {available.dev && !available.password && <DevLogin callbackUrl={callbackUrl} />}
+        {!available.oidc && !available.dev && !available.password && (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm space-y-2">
             <p className="font-medium text-destructive">{t('unconfigured.title')}</p>
             <p className="text-destructive/90">

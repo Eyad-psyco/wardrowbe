@@ -306,15 +306,27 @@ AI_TEXT_MODEL=llama3.2-vision:11b  # Same model for both tasks
 See [docker-compose.prod.yml](docker-compose.prod.yml) for production configuration. Like the default stack, it pulls pre-built images from GHCR rather than building on the host.
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml pull
+docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
 docker compose exec backend alembic upgrade head
+# Signup is invite-only, so create the first account yourself:
+docker compose exec backend python scripts/manage_users.py create you@example.com --display-name "You"
 ```
 
+[docker-compose.tls.yml](docker-compose.tls.yml) adds Caddy, which terminates
+HTTPS and renews Let's Encrypt certificates automatically. It needs `APP_DOMAIN`
+and `ACME_EMAIL` set, and the hostname must already resolve to the host. Drop it
+if you terminate TLS elsewhere.
+
+Images come from `IMAGE_REPO`, which defaults to this fork's registry
+(`ghcr.io/eyad-psyco/wardrowbe`) — the upstream images do not contain this
+fork's code. Publish them with the **Docker Publish** workflow, which runs on
+release or `workflow_dispatch`.
+
 Images are tagged `backend-latest` / `frontend-latest`, and each release also
-publishes `backend-<version>` / `frontend-<version>` (e.g. `backend-1.3.0`). To
-pin a deployment to a specific release, replace the `-latest` tags in the
-compose file with the version, e.g. `ghcr.io/anyesh/wardrowbe:backend-1.3.0`.
+publishes `backend-<version>` / `frontend-<version>` (e.g. `backend-1.3.0`). Pin
+a deployment with `IMAGE_TAG` / `FRONTEND_IMAGE_TAG`, or point `IMAGE_REPO`
+somewhere else entirely.
 
 ### Kubernetes
 
@@ -338,6 +350,10 @@ See the [k8s/](k8s/) directory for Kubernetes manifests including:
 | `NEXTAUTH_SECRET` | NextAuth session encryption | Yes |
 | `AI_BASE_URL` | AI service URL | Yes |
 | `AI_API_KEY` | AI API key (if required) | Depends |
+| `PASSWORD_AUTH_ENABLED` | Local email+password accounts (default: `true`) | No |
+| `IMAGE_REPO` | Registry the prod stack pulls from (default: this fork) | No |
+| `APP_DOMAIN` | Hostname for Caddy TLS (docker-compose.tls.yml) | If TLS |
+| `ACME_EMAIL` | Let's Encrypt contact address | If TLS |
 | `OIDC_ISSUER_URL` | OIDC provider URL (enables SSO login) | No |
 | `OIDC_CLIENT_ID` | OIDC client ID | If OIDC |
 | `OIDC_CLIENT_SECRET` | OIDC client secret | If OIDC |
@@ -381,8 +397,20 @@ If neither is configured, the remove-background button returns a 501 with setup 
 
 ### Authentication
 
-- **Development Mode** (default): Simple email/name login, no setup required
-- **OIDC Mode**: Any OIDC provider (PocketID, Authentik, Keycloak, Auth0, etc.)
+- **Email + password** (default): local accounts held by the app itself.
+  Signup is invite-only — there is no public registration and no seeded default
+  account, so create the first one with
+  `docker compose exec backend python scripts/manage_users.py create you@example.com --display-name "You"`,
+  then invite others with `... manage_users.py invite them@example.com` or
+  `POST /auth/invites`. Disable with `PASSWORD_AUTH_ENABLED=false`.
+- **OIDC Mode**: Any OIDC provider (PocketID, Authentik, Keycloak, Auth0, etc.).
+  Works alongside password accounts.
+- **Development Mode**: `DEBUG=true` with password auth off. Accepts any email
+  with **no password at all** — never enable it on a reachable host.
+
+If the dashboard's "Loading your wardrobe..." screen never resolves (a stale
+session cookie from switching accounts, or a wedged request), it now offers a
+**Back to sign in** link after 8 seconds instead of spinning forever.
 
 To enable OIDC, set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` in your `.env`. If your OIDC provider uses a self-signed certificate, set `OIDC_SKIP_SSL_VERIFY=true`. If your OIDC provider runs on a hostname that Docker containers can't resolve (e.g. a local DNS name), set `LOCAL_DNS` to your DNS server IP, or set `OIDC_HOST` and `OIDC_HOST_IP` to inject the hostname directly into the container's `/etc/hosts`.
 

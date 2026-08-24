@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     app_name: str = "Wardrowbe"
     debug: bool = False
     secret_key: str = Field(default=DEFAULT_SECRET_KEY)
+    # Local email+password accounts. Independent of OIDC: both can be on at once.
+    password_auth_enabled: bool = True
     studio_disabled: bool = False
 
     # CORS
@@ -146,10 +148,10 @@ class Settings(BaseSettings):
 
         oidc_configured = oidc_issuer and oidc_client
         is_dev = self.debug and not oidc_configured
-        if not oidc_configured and not is_dev:
+        if not oidc_configured and not is_dev and not self.password_auth_enabled:
             return (
-                "No authentication method configured. "
-                "Set OIDC_ISSUER_URL + OIDC_CLIENT_ID, or enable DEBUG mode."
+                "No authentication method configured. Set OIDC_ISSUER_URL + "
+                "OIDC_CLIENT_ID, leave PASSWORD_AUTH_ENABLED on, or enable DEBUG mode."
             )
 
         return None
@@ -157,8 +159,12 @@ class Settings(BaseSettings):
     def get_auth_mode(self) -> str:
         if self.oidc_issuer_url and self.oidc_client_id:
             return "oidc"
+        # Checked before password so DEBUG environments keep reporting "dev",
+        # which is what the login page uses to offer the dev shortcut.
         if self.debug:
             return "dev"
+        if self.password_auth_enabled:
+            return "password"
         return "unknown"
 
     def get_geocoding_user_agent(self) -> str:

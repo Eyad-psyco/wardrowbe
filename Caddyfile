@@ -1,0 +1,9 @@
+# Production TLS terminator. Obtains and renews the Let's Encrypt certificate
+# automatically; nothing else in the stack needs to publish a port.
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	reverse_proxy nginx:80
+}

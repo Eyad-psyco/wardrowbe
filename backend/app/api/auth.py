@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Annotated
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -10,17 +11,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
+from app.schemas.auth import (
+    InviteCreateRequest,
+    InviteCreateResponse,
+    LoginRequest,
+    RegisterRequest,
+)
 from app.schemas.user import (
     AuthConfigOIDC,
     AuthConfigResponse,
     AuthStatusResponse,
+    UserCreate,
     UserResponse,
     UserSyncRequest,
     UserSyncResponse,
 )
 from app.services.user_service import UserEmailConflictError, UserService
 from app.utils.auth import get_current_user
+from app.utils.invite import InviteError, create_invite_token, read_invite_token
 from app.utils.oidc import validate_oidc_id_token
+from app.utils.password import PasswordPolicyError, hash_password, verify_password
 from app.utils.rate_limit import rate_limit_by_ip
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -73,6 +83,7 @@ async def get_auth_config() -> AuthConfigResponse:
             else None,
         ),
         dev_mode=_is_dev_mode(),
+        password_enabled=settings.password_auth_enabled,
     )
 
 
@@ -84,8 +95,8 @@ async def auth_status() -> AuthStatusResponse:
             configured=False,
             mode=mode,
             error=(
-                "No authentication method configured. "
-                "Set OIDC_ISSUER_URL + OIDC_CLIENT_ID, or enable DEBUG mode."
+                "No authentication method configured. Set OIDC_ISSUER_URL + "
+                "OIDC_CLIENT_ID, leave PASSWORD_AUTH_ENABLED on, or enable DEBUG mode."
             ),
         )
     return AuthStatusResponse(configured=True, mode=mode)
@@ -164,6 +175,12 @@ async def sync_user(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Email already associated with another account. Verified email required for migration.",
                 )
+    elif settings.password_auth_enabled:
+        # Local accounts authenticate at /auth/login, not here.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use /auth/login for email and password sign-in",
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -184,6 +201,7 @@ async def sync_user(
 
     return UserSyncResponse(
         id=user.id,
+        external_id=user.external_id,
         email=user.email,
         display_name=user.display_name,
         is_new_user=is_new,
@@ -197,3 +215,139 @@ async def get_session(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+@router.post("/login", response_model=UserSyncResponse)
+async def login(
+    request: Request,
+    credentials: LoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserSyncResponse:
+    """Email + password sign-in for local accounts."""
+    if not settings.password_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Password authentication is disabled",
+        )
+
+    # Throttled per IP: this is the one endpoint worth guessing against.
+    await rate_limit_by_ip(request, "auth_login", 10, 300)
+
+    user_service = UserService(db)
+    user = await user_service.get_by_email(credentials.email.strip().lower())
+
+    # verify_password returns False for a None hash, so OIDC-only accounts and
+    # missing accounts fail identically and neither is distinguishable here.
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive",
+        )
+
+    await user_service.update_last_login(user)
+
+    return UserSyncResponse(
+        id=user.id,
+        external_id=user.external_id,
+        email=user.email,
+        display_name=user.display_name,
+        is_new_user=False,
+        onboarding_completed=user.onboarding_completed,
+        access_token=create_access_token(user.external_id),
+    )
+
+
+@router.post("/register", response_model=UserSyncResponse)
+async def register(
+    request: Request,
+    registration: RegisterRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserSyncResponse:
+    """Create a local account from an invite. There is no open signup."""
+    if not settings.password_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Password authentication is disabled",
+        )
+
+    await rate_limit_by_ip(request, "auth_register", 5, 3600)
+
+    # The email comes from the signed invite, never from the request body, so a
+    # holder of one invite cannot register a different address.
+    try:
+        email = read_invite_token(registration.invite_token)
+    except InviteError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        ) from None
+
+    try:
+        password_hash = hash_password(registration.password)
+    except PasswordPolicyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from None
+
+    user_service = UserService(db)
+    if await user_service.get_by_email(email):
+        # Also how invite replay is stopped: the invite names one email, and
+        # that email can only be registered once.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account already exists for this email.",
+        )
+
+    user = await user_service.create(
+        UserCreate(
+            external_id=f"local:{uuid4()}",
+            email=email,
+            display_name=registration.display_name,
+        )
+    )
+    user.password_hash = password_hash
+    await user_service.update_last_login(user)
+
+    return UserSyncResponse(
+        id=user.id,
+        external_id=user.external_id,
+        email=user.email,
+        display_name=user.display_name,
+        is_new_user=True,
+        onboarding_completed=user.onboarding_completed,
+        access_token=create_access_token(user.external_id),
+    )
+
+
+@router.post("/invites", response_model=InviteCreateResponse)
+async def create_invite(
+    invite: InviteCreateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> InviteCreateResponse:
+    """Mint a signup invite. Any signed-in user may invite someone."""
+    if not settings.password_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Password authentication is disabled",
+        )
+
+    email = invite.email.strip().lower()
+    if await UserService(db).get_by_email(email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account already exists for this email.",
+        )
+
+    return InviteCreateResponse(
+        email=email,
+        token=create_invite_token(email, timedelta(days=invite.expires_in_days)),
+        expires_in_days=invite.expires_in_days,
+    )

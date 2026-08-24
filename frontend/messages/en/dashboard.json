@@ -10,7 +10,9 @@
     "title": "Insights"
   },
   "layout": {
-    "loading": "Loading your wardrobe..."
+    "loading": "Loading your wardrobe...",
+    "stuckMessage": "This is taking longer than expected.",
+    "stuckSignIn": "Back to sign in"
   },
   "nextScheduled": {
     "comingUp": "Coming up",

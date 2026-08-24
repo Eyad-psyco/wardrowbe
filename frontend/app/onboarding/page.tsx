@@ -15,7 +15,9 @@ import {
   ChevronLeft,
   Check,
   ArrowRight,
+  LogOut,
 } from 'lucide-react';
+import { signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -829,6 +831,17 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            {t('signOut')}
+          </button>
+        </div>
+
         {currentStep < 5 && <StepIndicator currentStep={currentStep} />}
 
         <div className="py-8">

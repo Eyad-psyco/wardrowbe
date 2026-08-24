@@ -35,7 +35,7 @@ services:
 
   # FastAPI Backend
   backend:
-    image: ghcr.io/anyesh/wardrowbe:backend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${IMAGE_TAG:-backend-latest}
     container_name: wardrobe-backend
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -46,12 +46,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-wardrobe}:${POSTGRES_PASSWORD:-wardrobe}@postgres:5432/${POSTGRES_DB:-wardrobe}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      PASSWORD_AUTH_ENABLED: ${PASSWORD_AUTH_ENABLED:-true}
       CORS_ORIGINS: '["http://localhost:3000", "http://frontend:3000"]'
       STORAGE_PATH: /data/wardrobe
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      AUTH_TRUST_HEADER: ${AUTH_TRUST_HEADER:-false}
       AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434/v1}
       AI_VISION_MODEL: ${AI_VISION_MODEL:-gpt-4o}
       AI_TEXT_MODEL: ${AI_TEXT_MODEL:-gpt-4o}
@@ -81,7 +81,7 @@ services:
 
   # Next.js Frontend
   frontend:
-    image: ghcr.io/anyesh/wardrowbe:frontend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${FRONTEND_IMAGE_TAG:-frontend-latest}
     container_name: wardrobe-frontend
     environment:
       # NEXT_PUBLIC_API_URL is the pre-1.6 name, still honored so existing .env files keep working.
@@ -89,6 +89,7 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-in-production}
       DEV_MODE: ${DEBUG:-false}
+      PASSWORD_AUTH_ENABLED: ${PASSWORD_AUTH_ENABLED:-true}
       PUID: ${PUID:-1001}
       PGID: ${PGID:-1001}
     ports:
@@ -99,7 +100,7 @@ services:
 
 # Background Worker for AI Tagging
   worker:
-    image: ghcr.io/anyesh/wardrowbe:backend-latest
+    image: ${IMAGE_REPO:-ghcr.io/eyad-psyco/wardrowbe}:${IMAGE_TAG:-backend-latest}
     container_name: wardrobe-worker
     command: arq app.workers.worker.WorkerSettings
     extra_hosts:
