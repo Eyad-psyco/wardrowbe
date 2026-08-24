@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { signIn, getProviders, useSession } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -196,6 +197,15 @@ function LoginContent() {
 
   const syncError = syncErrorParam || session?.syncError;
 
+  const [selfSignupEnabled, setSelfSignupEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/v1/auth/config')
+      .then((res) => res.json())
+      .then((data) => setSelfSignupEnabled(Boolean(data.self_signup_enabled)))
+      .catch(() => setSelfSignupEnabled(false));
+  }, []);
+
   // More than one of these can be live at once (password alongside SSO), so
   // this tracks each independently rather than picking a single mode.
   const [available, setAvailable] = useState<{
@@ -266,6 +276,15 @@ function LoginContent() {
           </div>
         )}
       </div>
+
+      {available.password && selfSignupEnabled && (
+        <p className="text-center text-sm text-muted-foreground">
+          {t('noAccount')}{' '}
+          <Link href="/signup" className="font-medium text-primary hover:underline">
+            {t('signUp')}
+          </Link>
+        </p>
+      )}
     </>
   );
 }

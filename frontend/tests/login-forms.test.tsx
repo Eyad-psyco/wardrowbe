@@ -31,11 +31,20 @@ vi.mock('next-intl', () => ({
 const providers = (...ids: string[]) =>
   Object.fromEntries(ids.map((id) => [id, { id, name: id }]));
 
+// The page calls /auth/status (backend health) and /auth/config (self-signup
+// flag) with plain fetch, distinct from the NextAuth provider mock above.
+function mockBackend({ selfSignupEnabled = false } = {}) {
+  global.fetch = vi.fn((url: string) => {
+    if (url.includes('/auth/config')) {
+      return Promise.resolve({ json: async () => ({ self_signup_enabled: selfSignupEnabled }) });
+    }
+    return Promise.resolve({ json: async () => ({ configured: true, mode: 'password' }) });
+  }) as unknown as typeof fetch;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  global.fetch = vi.fn().mockResolvedValue({
-    json: async () => ({ configured: true, mode: 'password' }),
-  }) as unknown as typeof fetch;
+  mockBackend();
 });
 
 const passwordFields = () => screen.queryAllByLabelText('password');
@@ -80,5 +89,36 @@ describe('login page form selection', () => {
     await waitFor(() => expect(screen.getByText('unconfigured.title')).toBeDefined());
     expect(passwordFields().length).toBe(0);
     expect(devOnlyField()).toBeNull();
+  });
+});
+
+describe('login page signup link', () => {
+  it('is hidden when self-signup is off', async () => {
+    mockProviders.mockResolvedValue(providers('password') as never);
+    mockBackend({ selfSignupEnabled: false });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(passwordFields().length).toBe(1));
+    expect(screen.queryByText('signUp')).toBeNull();
+  });
+
+  it('appears when self-signup is on', async () => {
+    mockProviders.mockResolvedValue(providers('password') as never);
+    mockBackend({ selfSignupEnabled: true });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(screen.queryByText('signUp')).not.toBeNull());
+  });
+
+  it('is hidden when only OIDC is configured, even if self-signup is on', async () => {
+    mockProviders.mockResolvedValue(providers('oidc') as never);
+    mockBackend({ selfSignupEnabled: true });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(screen.getByRole('button')).toBeDefined());
+    expect(screen.queryByText('signUp')).toBeNull();
   });
 });

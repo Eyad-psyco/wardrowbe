@@ -351,6 +351,7 @@ See the [k8s/](k8s/) directory for Kubernetes manifests including:
 | `AI_BASE_URL` | AI service URL | Yes |
 | `AI_API_KEY` | AI API key (if required) | Depends |
 | `PASSWORD_AUTH_ENABLED` | Local email+password accounts (default: `true`) | No |
+| `SELF_SIGNUP_ENABLED` | Open `/signup`, no invite needed (default: `true`) | No |
 | `IMAGE_REPO` | Registry the prod stack pulls from (default: this fork) | No |
 | `APP_DOMAIN` | Hostname for Caddy TLS (docker-compose.tls.yml) | If TLS |
 | `ACME_EMAIL` | Let's Encrypt contact address | If TLS |
@@ -398,11 +399,15 @@ If neither is configured, the remove-background button returns a 501 with setup 
 ### Authentication
 
 - **Email + password** (default): local accounts held by the app itself.
-  Signup is invite-only — there is no public registration and no seeded default
-  account, so create the first one with
+  There's no seeded default account. Anyone can create their own at `/signup`
+  (`POST /auth/signup`) — **open, with no email verification yet**, so anyone
+  who can reach the app can create an account. Disable it with
+  `SELF_SIGNUP_ENABLED=false` and fall back to invite-only: create the first
+  account with
   `docker compose exec backend python scripts/manage_users.py create you@example.com --display-name "You"`,
   then invite others with `... manage_users.py invite them@example.com` or
-  `POST /auth/invites`. Disable with `PASSWORD_AUTH_ENABLED=false`.
+  `POST /auth/invites`. Disable password auth entirely with
+  `PASSWORD_AUTH_ENABLED=false`.
 - **OIDC Mode**: Any OIDC provider (PocketID, Authentik, Keycloak, Auth0, etc.).
   Works alongside password accounts.
 - **Development Mode**: `DEBUG=true` with password auth off. Accepts any email

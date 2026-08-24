@@ -393,3 +393,74 @@ class TestDeletePairing:
 
         response = await client.delete(f"/api/v1/pairings/{pairing.id}", headers=auth_headers)
         assert response.status_code == 404
+
+
+class TestFamilyFeedVisibility:
+    async def _make_family(self, db_session, test_user):
+        family = Family(
+            name="Test Family", invite_code=f"FAM{uuid4().hex[:6]}", created_by=test_user.id
+        )
+        db_session.add(family)
+        await db_session.flush()
+        test_user.family_id = family.id
+
+        viewer = User(
+            id=uuid4(),
+            external_id=f"viewer-{uuid4()}",
+            email=f"viewer-{uuid4()}@example.com",
+            display_name="Viewer",
+            timezone="UTC",
+            is_active=True,
+            family_id=family.id,
+        )
+        db_session.add(viewer)
+        await db_session.flush()
+        return viewer
+
+    @pytest.mark.asyncio
+    async def test_undated_outfit_with_public_items_appears_in_feed(
+        self, client: AsyncClient, test_user, db_session: AsyncSession
+    ):
+        viewer = await self._make_family(db_session, test_user)
+        item = _make_item(test_user.id, is_public=True)
+        db_session.add(item)
+        await db_session.flush()
+
+        outfit = Outfit(
+            user_id=test_user.id, occasion="casual", status=OutfitStatus.pending, scheduled_for=None
+        )
+        outfit.items.append(OutfitItem(item_id=item.id, position=0))
+        db_session.add(outfit)
+        await db_session.commit()
+
+        viewer_token = create_access_token(viewer.external_id)
+        viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
+        response = await client.get(
+            f"/api/v1/outfits?family_member_id={test_user.id}", headers=viewer_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_outfit_with_private_item_hidden_from_feed(
+        self, client: AsyncClient, test_user, db_session: AsyncSession
+    ):
+        viewer = await self._make_family(db_session, test_user)
+        item = _make_item(test_user.id, is_public=False)
+        db_session.add(item)
+        await db_session.flush()
+
+        outfit = Outfit(
+            user_id=test_user.id, occasion="casual", status=OutfitStatus.pending, scheduled_for=None
+        )
+        outfit.items.append(OutfitItem(item_id=item.id, position=0))
+        db_session.add(outfit)
+        await db_session.commit()
+
+        viewer_token = create_access_token(viewer.external_id)
+        viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
+        response = await client.get(
+            f"/api/v1/outfits?family_member_id={test_user.id}", headers=viewer_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["total"] == 0

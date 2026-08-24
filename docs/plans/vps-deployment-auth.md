@@ -16,6 +16,8 @@
 - [x] Tests (25 backend, 4 frontend) and verification against the running stack
 - [x] Point every compose file at this fork's images, not just prod
 - [x] Show one credential form at a time (dev form was doubling up with password)
+- [x] Open self-signup: `POST /auth/signup`, `/signup` page, no invite or email verification
+- [x] Sign-out link on the onboarding flow
 - [ ] Deploy on the VPS and confirm login (needs a real domain — owner action)
 
 ## Background: what auth existed
@@ -61,8 +63,20 @@ verifies the bcrypt hash and returns the same `UserSyncResponse` the OIDC path
 returns. The `jwt` callback short-circuits on the token it already holds rather
 than calling `/auth/sync`, which would reject it (no `id_token`, not dev mode).
 
-**Signup is invite-only.** There is no public registration. An invite is a
-short-lived JWT signed with `SECRET_KEY` naming exactly one email address:
+**Signup has two paths.**
+
+*Open self-signup* (`POST /auth/signup`, `/signup` page) — email, password,
+display name, no invite. **No email verification**: whoever submits an address
+gets the account, whether or not they can read mail sent to it. This is the
+default now, a deliberate reversal of the original invite-only design (see
+"Original design intent" below), and worth revisiting before this app is
+exposed to strangers rather than just people you've handed the URL to.
+
+*Invite-based* (`POST /auth/register`, `/register?token=...`) still works
+alongside it, gated by a separate `SELF_SIGNUP_ENABLED` switch so open signup
+can be turned off without losing password login entirely — falling back to
+invite-only without redeploying code. An invite is a short-lived JWT signed
+with `SECRET_KEY` naming exactly one email address:
 
 - The email comes from the *signed token*, never the request body, so holding
   one invite cannot register a different address (covered by
@@ -71,10 +85,13 @@ short-lived JWT signed with `SECRET_KEY` naming exactly one email address:
   token can only ever create the one account it names, so a replay hits a 409.
 
 That is why there is no `signup_invites` table — the constraint that makes
-invites single-use already existed.
+invites single-use already existed. It also means `/auth/signup` needs no such
+table either: the same unique constraint stops a duplicate signup at 409.
 
-**Rate limits.** `/auth/login` is 10 per IP per 5 minutes and `/auth/register` 5
-per IP per hour, using the Redis limiter that was already in `auth.py`.
+**Rate limits.** `/auth/login` is 10/IP/5min, `/auth/register` and
+`/auth/signup` are each 5/IP/hour, using the Redis limiter already in
+`auth.py`. `/auth/signup` is the one endpoint with no gate but rate limiting —
+anyone on the internet can call it if `SELF_SIGNUP_ENABLED` is on.
 
 **Enumeration.** A wrong password and an unknown email return byte-identical
 401s, and an OIDC-only account (no hash) fails the same way.
@@ -85,10 +102,11 @@ per IP per hour, using the Redis limiter that was already in `auth.py`.
 |---|---|
 | `backend/app/utils/password.py` | bcrypt hash/verify, length policy |
 | `backend/app/utils/invite.py` | signed invite tokens |
-| `backend/app/api/auth.py` | `/auth/login`, `/auth/register`, `/auth/invites` |
+| `backend/app/api/auth.py` | `/auth/login`, `/auth/signup`, `/auth/register`, `/auth/invites` |
 | `backend/scripts/manage_users.py` | create user, set password, mint invite |
 | `backend/migrations/versions/e9f0a1b2c3d4_*.py` | nullable `password_hash` |
 | `frontend/lib/auth.ts` | NextAuth `password` provider |
+| `frontend/app/signup/page.tsx` | open self-signup |
 | `frontend/app/register/page.tsx` | invite redemption |
 | `Caddyfile`, `docker-compose.tls.yml` | automatic TLS |
 
@@ -121,14 +139,21 @@ Adding someone: `manage_users.py invite them@example.com` prints a
 
 Against the running dev stack:
 
-- 25 new tests in `backend/tests/test_password_auth.py`, all passing
+- 31 tests in `backend/tests/test_password_auth.py` (25 login/register/invite +
+  6 for signup, including both feature switches turned off), all passing
 - existing `test_auth.py`, `test_oidc.py`, `test_users.py` — 50 passing, so the
   OIDC and dev paths are unaffected
-- `npx tsc --noEmit` clean
-- live API: correct password issues a token that opens `/auth/session` (200);
-  wrong password, unknown email, and an OIDC-only account all return an
-  identical 401; invite → register → replay returns 409; a forged invite and a
-  5-character password are rejected
+- 7 tests in `frontend/tests/login-forms.test.tsx` (4 form-selection + 3 for the
+  signup link's visibility), `npx tsc --noEmit` clean
+- live API, rebuilt from source (`docker compose ... up -d --build`, since a
+  bare `up -d` silently reuses whatever image was last pulled/built under that
+  tag): correct password issues a token that opens `/auth/session` (200); wrong
+  password, unknown email, and an OIDC-only account all return an identical
+  401; invite → register → replay returns 409; signup → login → duplicate
+  signup returns 409; a forged invite and a 4-character password are rejected
+- full browser-equivalent flow through NextAuth itself (CSRF token, sign-up
+  POST, `signIn('password', ...)`, session cookie) for both the invite path and
+  open self-signup
 
 Known-failing, both **pre-existing and unrelated**:
 
@@ -189,6 +214,25 @@ Not verified: the deployed stack behind a real domain and certificate.
   works in the dev stack and not only in production. Verified: with it off, both
   `/auth/login` and `/auth/register` return 404 and `/auth/config` reports
   `password_enabled: false`.
+- **Original design intent reversed: signup is now open by default.** The
+  original plan explicitly chose invite-only after weighing it against open
+  signup (see the AskUserQuestion decision this plan started from). The owner
+  has since asked for self-signup, so `/auth/signup` now exists alongside the
+  invite path, gated by its own `SELF_SIGNUP_ENABLED` switch (default `true`)
+  rather than folded into `PASSWORD_AUTH_ENABLED` — so invite-only can be
+  restored later by flipping one setting, without losing password login. **No
+  email verification**: this is explicitly deferred, not merely unimplemented,
+  per the request that introduced it. Anyone who can reach the app can claim
+  any email address without proving they control it. Acceptable for a
+  known-audience deployment; revisit before opening this up to strangers.
+- **`tests/setup.ts` had a latent bug, surfaced by this change.**
+  `IntersectionObserver`/`ResizeObserver` were mocked with arrow functions
+  (`vi.fn().mockImplementation(() => ({...}))`). Arrow functions have no
+  `[[Construct]]`, and `next/link` (newly used on the login and signup pages)
+  calls `new IntersectionObserver(...)` for prefetching, so any test rendering
+  a `next/link` crashed with "is not a constructor". Fixed at the shared setup
+  level with plain function expressions, since any future test rendering
+  `next/link` would have hit the identical crash.
 
 ## Not done
 

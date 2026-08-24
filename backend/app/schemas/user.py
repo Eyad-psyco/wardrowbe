@@ -94,3 +94,4 @@ class AuthConfigResponse(BaseModel):
     oidc: AuthConfigOIDC
     dev_mode: bool = False
     password_enabled: bool = True
+    self_signup_enabled: bool = True

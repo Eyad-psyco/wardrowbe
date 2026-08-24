@@ -1,4 +1,4 @@
-"""Tests for local email+password accounts and invite-only signup."""
+"""Tests for local email+password accounts, open self-signup, and invites."""
 
 from datetime import timedelta
 from uuid import uuid4
@@ -7,6 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import auth as auth_module
 from app.models.user import User
 from app.utils.invite import InviteError, create_invite_token, read_invite_token
 from app.utils.password import (
@@ -246,6 +247,76 @@ class TestRegister:
         )
         assert response.status_code == 200
         assert response.json()["email"] == local_email
+
+
+class TestSignup:
+    @pytest.mark.asyncio
+    async def test_signup_creates_and_logs_in(self, client: AsyncClient, local_email: str):
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": local_email, "password": PASSWORD, "display_name": "Self Signed"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["email"] == local_email
+        assert body["is_new_user"] is True
+        assert body["external_id"].startswith("local:")
+
+        login = await client.post(
+            "/api/v1/auth/login", json={"email": local_email, "password": PASSWORD}
+        )
+        assert login.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_signup_normalizes_email(self, client: AsyncClient):
+        email = f"  Mixed-{uuid4()}@Example.COM  "
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": email, "password": PASSWORD, "display_name": "Mixed Case"},
+        )
+        assert response.status_code == 200
+        assert response.json()["email"] == email.strip().lower()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_email_rejected(
+        self, client: AsyncClient, db_session: AsyncSession, local_email: str
+    ):
+        await _make_local_user(db_session, local_email, PASSWORD)
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": local_email, "password": PASSWORD, "display_name": "Duplicate"},
+        )
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_weak_password_rejected(self, client: AsyncClient, local_email: str):
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": local_email, "password": "abcd", "display_name": "Weak"},
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_disabled_when_self_signup_off(
+        self, client: AsyncClient, local_email: str, monkeypatch
+    ):
+        monkeypatch.setattr(auth_module.settings, "self_signup_enabled", False)
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": local_email, "password": PASSWORD, "display_name": "Nope"},
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_disabled_when_password_auth_off(
+        self, client: AsyncClient, local_email: str, monkeypatch
+    ):
+        monkeypatch.setattr(auth_module.settings, "password_auth_enabled", False)
+        response = await client.post(
+            "/api/v1/auth/signup",
+            json={"email": local_email, "password": PASSWORD, "display_name": "Nope"},
+        )
+        assert response.status_code == 404
 
 
 class TestInviteEndpoint:

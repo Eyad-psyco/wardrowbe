@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     secret_key: str = Field(default=DEFAULT_SECRET_KEY)
     # Local email+password accounts. Independent of OIDC: both can be on at once.
     password_auth_enabled: bool = True
+    # Public POST /auth/signup with no invite and no email verification. Separate
+    # from password_auth_enabled so a deployment can turn off open signup later
+    # (falling back to invite-only via /auth/register) without losing password
+    # login entirely.
+    self_signup_enabled: bool = True
     studio_disabled: bool = False
 
     # CORS

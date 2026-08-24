@@ -70,7 +70,13 @@ class OutfitService:
         clauses = [Outfit.user_id == filters.user_id]
 
         if filters.family_member_view:
-            clauses.append(Outfit.scheduled_for.is_not(None))
+            has_private_item = (
+                select(OutfitItem.outfit_id)
+                .join(ClothingItem, OutfitItem.item_id == ClothingItem.id)
+                .where(OutfitItem.outfit_id == Outfit.id, ClothingItem.is_public.is_(False))
+                .exists()
+            )
+            clauses.append(~has_private_item)
 
         if filters.status_filter:
             parsed_statuses: list[OutfitStatus] = []

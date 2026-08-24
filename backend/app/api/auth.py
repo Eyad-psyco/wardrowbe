@@ -16,6 +16,7 @@ from app.schemas.auth import (
     InviteCreateResponse,
     LoginRequest,
     RegisterRequest,
+    SignupRequest,
 )
 from app.schemas.user import (
     AuthConfigOIDC,
@@ -84,6 +85,7 @@ async def get_auth_config() -> AuthConfigResponse:
         ),
         dev_mode=_is_dev_mode(),
         password_enabled=settings.password_auth_enabled,
+        self_signup_enabled=settings.password_auth_enabled and settings.self_signup_enabled,
     )
 
 
@@ -310,6 +312,66 @@ async def register(
             external_id=f"local:{uuid4()}",
             email=email,
             display_name=registration.display_name,
+        )
+    )
+    user.password_hash = password_hash
+    await user_service.update_last_login(user)
+
+    return UserSyncResponse(
+        id=user.id,
+        external_id=user.external_id,
+        email=user.email,
+        display_name=user.display_name,
+        is_new_user=True,
+        onboarding_completed=user.onboarding_completed,
+        access_token=create_access_token(user.external_id),
+    )
+
+
+@router.post("/signup", response_model=UserSyncResponse)
+async def signup(
+    request: Request,
+    signup_data: SignupRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserSyncResponse:
+    """Open self-registration: no invite, no email verification (yet)."""
+    if not settings.password_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Password authentication is disabled",
+        )
+    if not settings.self_signup_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Self-signup is disabled",
+        )
+
+    # No invite gate here, so this is the one endpoint anyone on the internet
+    # can call freely — the tightest limit in this file.
+    await rate_limit_by_ip(request, "auth_signup", 5, 3600)
+
+    email = signup_data.email.strip().lower()
+
+    try:
+        password_hash = hash_password(signup_data.password)
+    except PasswordPolicyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from None
+
+    user_service = UserService(db)
+    if await user_service.get_by_email(email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account already exists for this email.",
+        )
+
+    user = await user_service.create(
+        UserCreate(
+            external_id=f"local:{uuid4()}",
+            email=email,
+            display_name=signup_data.display_name,
         )
     )
     user.password_hash = password_hash

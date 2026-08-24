@@ -32,6 +32,12 @@ class RegisterRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
 
 
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1, max_length=1024)
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
 class InviteCreateRequest(BaseModel):
     email: EmailStr
     expires_in_days: int = Field(default=7, ge=1, le=90)
