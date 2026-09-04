@@ -450,3 +450,63 @@ class TestKnownTagAutofill:
         """Lenient: plenty of items simply won't match anything the user has."""
         service = AIService(known_tags=["gym"])
         assert service._parse_tags_from_response('{"type":"shirt"}').user_tags == []
+
+
+class TestProseVisionRepair:
+    """moondream-style models return captions; text model must convert to JSON."""
+
+    @staticmethod
+    def _success(content: str) -> httpx.Response:
+        return _mock_response({"model": "test", "choices": [{"message": {"content": content}}]})
+
+    @pytest.mark.asyncio
+    async def test_prose_tags_are_repaired_via_text_model(self):
+        service = AIService()
+        prose = (
+            "The image shows a mannequin displaying a pair of blue jeans against a white background."
+        )
+        repaired = (
+            '{"type":"jeans","primary_color":"blue","colors":["blue"],'
+            '"pattern":"solid","formality":"casual"}'
+        )
+        # tags (vision prose) → tags-repair (text JSON) → description
+        responses = [
+            self._success(prose),
+            self._success(repaired),
+            self._success("Blue jeans on a mannequin."),
+        ]
+
+        with (
+            patch.object(service, "_preprocess_image", return_value="fakeb64"),
+            patch("httpx.AsyncClient.post", side_effect=responses) as mock_post,
+        ):
+            tags = await service.analyze_image("/tmp/fake.jpg")
+
+        assert tags.type == "jeans"
+        assert tags.primary_color == "blue"
+        assert tags.description == "Blue jeans on a mannequin."
+        assert mock_post.call_count == 3
+        # Second call is the text-model repair (no image_url parts).
+        repair_body = mock_post.call_args_list[1].kwargs["json"]
+        assert repair_body["model"] == service.text_model
+        assert repair_body.get("format") == "json"
+
+    @pytest.mark.asyncio
+    async def test_json_mode_rejection_retries_without_format(self):
+        service = AIService()
+        reject = _mock_response(
+            {"error": {"message": 'Unknown name "format": Cannot find field.'}},
+            status_code=400,
+        )
+        ok = self._success('{"type":"shirt","primary_color":"red"}')
+
+        with patch("httpx.AsyncClient.post", side_effect=[reject, ok]) as mock_post:
+            content, err, _ = await service._call_with_fallback(
+                [{"role": "user", "content": "tag"}], "tags", json_mode=True
+            )
+
+        assert err is None
+        assert content is not None
+        assert mock_post.call_count == 2
+        assert "format" not in mock_post.call_args_list[1].kwargs["json"]
+        assert "response_format" not in mock_post.call_args_list[1].kwargs["json"]

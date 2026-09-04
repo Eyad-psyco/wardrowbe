@@ -281,6 +281,27 @@ def _response_rejects_logprobs(response: httpx.Response) -> bool:
     return response.status_code == 400 and "logprobs" in response.text.lower()
 
 
+def _response_rejects_json_mode(response: httpx.Response) -> bool:
+    # Providers that don't know Ollama's `format` or OpenAI's `response_format`
+    # return 400; strip those fields and retry the same attempt.
+    if response.status_code != 400:
+        return False
+    text = response.text.lower()
+    return "response_format" in text or "format" in text
+
+
+def _looks_like_unparsed_prose(tags: ClothingTags, raw: str | None) -> bool:
+    """True when the vision model answered in English instead of tag JSON."""
+    if not raw or not raw.strip():
+        return False
+    if tags.type != "unknown":
+        return False
+    # Parsed JSON with type unknown still has structured raw_response; prose
+    # responses are the ones we failed to extract an object from.
+    stripped = raw.strip()
+    return not stripped.startswith("{") and not stripped.startswith("[")
+
+
 _CONFIDENCE_FIELDS = {"type", "primary_color", "pattern", "material", "formality"}
 
 
@@ -592,6 +613,7 @@ class AIService:
         task_name: str,
         use_vision_model: bool = True,
         request_logprobs: bool = False,
+        json_mode: bool = False,
     ) -> tuple[str | None, Exception | None, list | None]:
         last_error = None
 
@@ -599,6 +621,7 @@ class AIService:
             logger.info(f"Trying AI endpoint for {task_name}: {endpoint.name}")
             model = endpoint.vision_model if use_vision_model else endpoint.text_model
             use_logprobs = request_logprobs
+            use_json_mode = json_mode
 
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                 attempt = 0
@@ -613,6 +636,11 @@ class AIService:
                         if use_logprobs:
                             request_body["logprobs"] = True
                             request_body["top_logprobs"] = 3
+                        if use_json_mode:
+                            # Ollama native + OpenAI-compat; providers that reject either
+                            # field are retried without json_mode (see below).
+                            request_body["format"] = "json"
+                            request_body["response_format"] = {"type": "json_object"}
 
                         response = await client.post(
                             f"{endpoint.url}/chat/completions",
@@ -649,6 +677,13 @@ class AIService:
                                 f"retrying without it: {e}"
                             )
                             use_logprobs = False
+                            continue
+                        if use_json_mode and _response_rejects_json_mode(e.response):
+                            logger.warning(
+                                f"{endpoint.name} rejected json mode for {task_name}, "
+                                f"retrying without it: {e}"
+                            )
+                            use_json_mode = False
                             continue
                         last_error = e
                         logger.warning(f"HTTP error from {endpoint.name}: {e}")
@@ -700,18 +735,53 @@ class AIService:
 
         tags = ClothingTags()
         last_error = None
+        vision_prose: str | None = None
 
         # First pass: structured tags with logprobs for real confidence
         content, err, logprobs_content = await self._call_with_fallback(
-            messages_tags, "tags", request_logprobs=True
+            messages_tags, "tags", request_logprobs=True, json_mode=True
         )
         if content:
             tags = self._parse_tags_from_response(content)
             logprobs_confidence = compute_confidence_from_logprobs(logprobs_content)
             if logprobs_confidence is not None:
                 tags.logprobs_confidence = logprobs_confidence
+            if _looks_like_unparsed_prose(tags, content):
+                vision_prose = content.strip()
         if err:
             last_error = err
+
+        # Caption-style vision models (moondream) ignore JSON instructions. Re-ask
+        # the text model to turn that prose into the tagging schema — both models
+        # are already on the VPS and the text call is cheap on CPU.
+        if vision_prose:
+            logger.info("Vision returned prose instead of JSON; repairing via text model")
+            repair_messages = [
+                {"role": "system", "content": self._tagging_prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        "Convert this clothing description into the required JSON object only. "
+                        "Do not add commentary.\n\n"
+                        f"{vision_prose}"
+                    ),
+                },
+            ]
+            repaired, repair_err, _ = await self._call_with_fallback(
+                repair_messages,
+                "tags-repair",
+                use_vision_model=False,
+                request_logprobs=False,
+                json_mode=True,
+            )
+            if repaired:
+                repaired_tags = self._parse_tags_from_response(repaired)
+                if repaired_tags.type != "unknown":
+                    tags = repaired_tags
+                    if not tags.description:
+                        tags.description = vision_prose[:500]
+            elif repair_err and last_error is None:
+                last_error = repair_err
 
         # Second pass: human-readable description
         content, err, _ = await self._call_with_fallback(messages_desc, "description")
@@ -720,6 +790,8 @@ class AIService:
             if description.startswith('"') and description.endswith('"'):
                 description = description[1:-1]
             tags.description = description
+        elif vision_prose and not tags.description:
+            tags.description = vision_prose[:500]
 
         if tags.type == "unknown" and not tags.description and last_error:
             raise last_error
