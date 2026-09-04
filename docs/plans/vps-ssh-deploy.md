@@ -7,10 +7,6 @@
 - [x] Document required GitHub secrets + VPS assumptions
 - [x] Short README blurb under Deployment
 
-### Deviations from the plan
-
-None.
-
 ## Todos
 
 - [x] Create `.github/workflows/deploy-vps.yml` (`workflow_call` + `workflow_dispatch`, SSH pull/up/migrate)
@@ -22,7 +18,7 @@ None.
 
 Every push to `main` publishes `backend-latest` / `frontend-latest` to GHCR via
 `release.yml` → `docker-publish.yml`, then SSHs into the OVH VPS and rolls the
-already-running prod+TLS stack forward.
+already-running default compose stack forward (frontend on :80, no TLS).
 
 ## Remote commands
 
@@ -33,12 +29,21 @@ set -euo pipefail
 cd "$DEPLOY_PATH"
 git fetch origin main
 git reset --hard origin/main
-docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml pull
-docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
-docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
+docker compose pull
+docker compose up -d
+docker compose exec -T backend alembic upgrade head
 ```
 
 `.env` is untracked, so `git reset --hard` does not overwrite it.
+
+The VPS runs the **default** [`docker-compose.yml`](../../docker-compose.yml)
+stack (`wardrobe-frontend` on `:80`), not `docker-compose.prod.yml`. When a
+domain exists and you move to prod+TLS, change these commands accordingly.
+
+### Deviations from the plan
+
+- Deploy uses default `docker-compose.yml`, not prod+TLS: the VPS serves the
+  site on the public IP via `wardrobe-frontend:80` with no Caddy/nginx.
 
 ## GitHub secrets / variables
 
@@ -60,4 +65,4 @@ Manual redeploy: Actions → **Deploy VPS** → Run workflow.
 - Deploy user can `git fetch` (deploy key or HTTPS token with `contents:read` if the repo is private).
 - Deploy user can run `docker compose` without interactive sudo (docker group or root).
 - If GHCR packages are private, the VPS is already logged in to `ghcr.io` (same as for manual pulls).
-- Prod stack uses `docker-compose.prod.yml` + `docker-compose.tls.yml`.
+- Stack is `docker compose` with default `docker-compose.yml` (not prod/TLS).

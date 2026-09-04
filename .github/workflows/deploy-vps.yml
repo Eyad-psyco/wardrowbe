@@ -25,6 +25,7 @@ jobs:
             cd "$DEPLOY_PATH"
             git fetch origin main
             git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml pull
-            docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d
-            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
+            # Matches the running stack: default docker-compose.yml (frontend :80).
+            docker compose pull
+            docker compose up -d
+            docker compose exec -T backend alembic upgrade head
