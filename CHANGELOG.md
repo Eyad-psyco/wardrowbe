@@ -5,6 +5,167 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0](https://github.com/Eyad-psyco/wardrowbe/compare/wardrowbe-v1.8.0...wardrowbe-v1.9.0) (2026-09-04)
+
+
+### ✨ Features
+
+* add .gitattributes for LF line endings in shell scripts and document seven user-requested wardrobe features ([2176c01](https://github.com/Eyad-psyco/wardrowbe/commit/2176c0194432ffaa265b7e8cc74afd068f20f64a))
+* add custom User-Agent header to JWKS client ([#134](https://github.com/Eyad-psyco/wardrowbe/issues/134)) ([c18fa75](https://github.com/Eyad-psyco/wardrowbe/commit/c18fa75a8fa70342466b7c84bf8cefbd0e4a51a7))
+* add mobile callback [#58](https://github.com/Eyad-psyco/wardrowbe/issues/58) ([44cf285](https://github.com/Eyad-psyco/wardrowbe/commit/44cf285d3d612d1e1e97d1af110c284b716cb398))
+* add next-intl internationalization with 4 locales ([be2668f](https://github.com/Eyad-psyco/wardrowbe/commit/be2668f9b326ddfaaa45ecb2aad9195fd74b4bc5))
+* add next-intl internationalization with 4 locales (en/zh/fr/it) ([77d5f6b](https://github.com/Eyad-psyco/wardrowbe/commit/77d5f6b0e9f4525b02004361a36b019950283ea8))
+* add page-size control and scope select-all to current page ([#127](https://github.com/Eyad-psyco/wardrowbe/issues/127)) ([7430a4f](https://github.com/Eyad-psyco/wardrowbe/commit/7430a4f910a65d6db810a5381f362e91f902694f))
+* **ai_service:** add JSON mode handling and prose repair for vision models ([217e191](https://github.com/Eyad-psyco/wardrowbe/commit/217e191857d55c4e7615053ae0bbc97a66e504d9))
+* **ai_service:** enhance tag repair logic for vision model responses ([98d9811](https://github.com/Eyad-psyco/wardrowbe/commit/98d9811cecc8549281cca038cc80683f359ad53a))
+* allow bulk upload without forced AI analysis ([#128](https://github.com/Eyad-psyco/wardrowbe/issues/128)) ([7984e26](https://github.com/Eyad-psyco/wardrowbe/commit/7984e26f4fa233a1a40d95805e74e6444ffa2bc6))
+* allow cancelling AI analysis on processing items ([#95](https://github.com/Eyad-psyco/wardrowbe/issues/95)) ([05f3578](https://github.com/Eyad-psyco/wardrowbe/commit/05f357808d55a74de1394b5ec36cf5472370ba21))
+* **api:** advertise external_tagging in /capabilities ([9f0d5ea](https://github.com/Eyad-psyco/wardrowbe/commit/9f0d5ea21f04872482265a5c201e0176a89d8f23))
+* **auth:** implement open self-signup functionality ([d0e391c](https://github.com/Eyad-psyco/wardrowbe/commit/d0e391c4be9cd1d527662fdb01694f92a6c07d7e))
+* **backend:** persist user locale ([a1878d3](https://github.com/Eyad-psyco/wardrowbe/commit/a1878d3bb07258ca1285dc1334d5c082d49e120b))
+* defer item tagging to an external agent (phase 2) ([c63ced9](https://github.com/Eyad-psyco/wardrowbe/commit/c63ced9caf4d4241fe53f7b164a886e45979547c))
+* external outfit authoring for suggestions and pairings ([#156](https://github.com/Eyad-psyco/wardrowbe/issues/156)) ([1d3506a](https://github.com/Eyad-psyco/wardrowbe/commit/1d3506a7bbab293e87043b6bfd9f996d7d1dffd6))
+* **i18n:** restructure keys onto feature namespaces and ship 8 locales ([eaf47b3](https://github.com/Eyad-psyco/wardrowbe/commit/eaf47b3dffb64fa430f2ead21ed1d2f7f7c3850e))
+* **item:** enhance item creation and tagging with AI exclusions and default visibility ([673c41d](https://github.com/Eyad-psyco/wardrowbe/commit/673c41d18733c09c20281668437d1b8a824d1111))
+* **item:** implement bulk image rotation functionality ([d9506e5](https://github.com/Eyad-psyco/wardrowbe/commit/d9506e5dd4f08c88dd3348f6ed5fa9bae253e74a))
+* **items:** add ai_failed_at column and retry cooldown config ([ebe8409](https://github.com/Eyad-psyco/wardrowbe/commit/ebe8409a31ecdd5249c2e6b3461c2fdb23e0409b))
+* **items:** add tagging lifecycle fields and migration ([d49bb65](https://github.com/Eyad-psyco/wardrowbe/commit/d49bb6506d37a77182e6c40479c3564cb5afc6b1))
+* **items:** add upload_key idempotency for bulk upload retries ([1d9d832](https://github.com/Eyad-psyco/wardrowbe/commit/1d9d832dd41f7af1c34acf34957e2680fb83c4f7))
+* **items:** defer tagging to an external agent and expose a write surface ([059e1ab](https://github.com/Eyad-psyco/wardrowbe/commit/059e1ab509b93a5490ec4d12a92155dbdcc64776))
+* make internal AI optional and add capabilities endpoint ([#113](https://github.com/Eyad-psyco/wardrowbe/issues/113)) ([376f9a6](https://github.com/Eyad-psyco/wardrowbe/commit/376f9a6a1e846d3de7853f55ac76447f204c8529))
+* **outfits:** add bulk-delete endpoint ([0db1be2](https://github.com/Eyad-psyco/wardrowbe/commit/0db1be23417cad87d28fa498bac9d5bf409c41ff))
+* **outfits:** add bulk-select/delete to outfits page, rename lookbook filter chip ([ea9f2c6](https://github.com/Eyad-psyco/wardrowbe/commit/ea9f2c69decadb5f6e16f7e27ac1989bfbfe21e8))
+* **sidebar:** replace logo with BrandHeader component in mobile and desktop sidebars ([afeb1af](https://github.com/Eyad-psyco/wardrowbe/commit/afeb1af7c5ea8db280da0458cb934dbd8de597b3))
+* support PUID/PGID overrides on app containers ([#123](https://github.com/Eyad-psyco/wardrowbe/issues/123)) ([14674cb](https://github.com/Eyad-psyco/wardrowbe/commit/14674cbbfd79e371b08d9761f02542aafe040cc3))
+* undo background removal and replace primary image ([#126](https://github.com/Eyad-psyco/wardrowbe/issues/126)) ([c1c10b2](https://github.com/Eyad-psyco/wardrowbe/commit/c1c10b2803b90104d5323ef112e66f786af75baa))
+* **wardrobe:** add durable upload queue and drain manager ([0d0ba29](https://github.com/Eyad-psyco/wardrowbe/commit/0d0ba293f4fd6187bd0973e541262eb1b8ac3cc4))
+* **wardrobe:** enhance item filtering and tagging capabilities ([8d9eafb](https://github.com/Eyad-psyco/wardrowbe/commit/8d9eafb392e26f2c58394a9fac7a983c8d4fe9b3))
+* **wardrobe:** enhance item management with user tags, visibility, and custom types ([1cca5b5](https://github.com/Eyad-psyco/wardrowbe/commit/1cca5b542303fd143a5c1c872a6db15ea9abefcf))
+* **wardrobe:** expand wardrobe features with fit/fill toggle and hover auto-advance ([ddb049a](https://github.com/Eyad-psyco/wardrowbe/commit/ddb049a927acdcdc19f118f350b71a0fd4b6e984))
+* **wardrobe:** implement bulk image upload and WebP conversion features ([0cbf5d5](https://github.com/Eyad-psyco/wardrowbe/commit/0cbf5d50e9f8eff6950d7478ad70d460ae7ad3e7))
+* **wardrobe:** outline new features for item management including tags, bulk image upload, and WebP conversion ([cd2bae2](https://github.com/Eyad-psyco/wardrowbe/commit/cd2bae27269f7ccb076f8748d9c45a9bc1dd9bc2))
+* **wardrobe:** show queued vs analyzing status with elapsed time ([9da07d0](https://github.com/Eyad-psyco/wardrowbe/commit/9da07d06bea8c3caae2689692feb1cee04dc35c4))
+* **wardrobe:** surface retry-cooldown status to the user ([a2848f4](https://github.com/Eyad-psyco/wardrowbe/commit/a2848f46fbc305bd26d6956dadfb7ab1eed7fff2))
+* **wardrobe:** wire durable upload queue into bulk-upload UI ([64ca39e](https://github.com/Eyad-psyco/wardrowbe/commit/64ca39eae10db9dc452bfc72f23cc7fe2f6816b3))
+* **worker:** make AI tagging concurrency configurable ([adafab9](https://github.com/Eyad-psyco/wardrowbe/commit/adafab9f37caa12092e786dae36d43d2fcd5018b))
+
+
+### 🐛 Bug Fixes
+
+* [#124](https://github.com/Eyad-psyco/wardrowbe/issues/124) fix prod compose file well ([3cded21](https://github.com/Eyad-psyco/wardrowbe/commit/3cded21db36b877ef2a0a90815a620be2cc4bdf5))
+* 39: Add proper error messages for diagnose ([#40](https://github.com/Eyad-psyco/wardrowbe/issues/40)) ([f4a71d1](https://github.com/Eyad-psyco/wardrowbe/commit/f4a71d15eba68519f59ff571cca0a111d59cc0c7))
+* Add current user check ([84840ab](https://github.com/Eyad-psyco/wardrowbe/commit/84840ab8da7727b24f127fa8d8ac18a57fbcbb51))
+* Add missing test:coverage script to package.json ([43b8dfa](https://github.com/Eyad-psyco/wardrowbe/commit/43b8dfa6a254c4af67e95b1bb3fefee2eac9d0e4))
+* add missing URL fields to TypeScript interfaces ([6113dd6](https://github.com/Eyad-psyco/wardrowbe/commit/6113dd6682227d82dc29251ed9a4fc9054047ad6))
+* add weather location fallbacks ([#75](https://github.com/Eyad-psyco/wardrowbe/issues/75)) ([7426d6d](https://github.com/Eyad-psyco/wardrowbe/commit/7426d6d8444769dd34263373ebf551ecaaf79b59))
+* address copilot review issues in i18n implementation ([a8871ee](https://github.com/Eyad-psyco/wardrowbe/commit/a8871ee33f3d96ed940f75d067e8b852bced12eb))
+* **ai:** stop image preprocessing from blocking the event loop ([b6ad642](https://github.com/Eyad-psyco/wardrowbe/commit/b6ad6420110962651653a3fe75d3d64d27047313))
+* align .env.example SECRET_KEY with dev-mode sentinel ([a8f9f5e](https://github.com/Eyad-psyco/wardrowbe/commit/a8f9f5e5a8c66da81084e49b18fa8c47f82e11ef)), closes [#72](https://github.com/Eyad-psyco/wardrowbe/issues/72)
+* allow overriding backend URL for renamed compose services ([#124](https://github.com/Eyad-psyco/wardrowbe/issues/124)) ([2a813d6](https://github.com/Eyad-psyco/wardrowbe/commit/2a813d60d711aa31c45ae7c024f1389b345be170))
+* chunk bulk uploads so batches over the limit no longer fail ([#125](https://github.com/Eyad-psyco/wardrowbe/issues/125)) ([a4df578](https://github.com/Eyad-psyco/wardrowbe/commit/a4df578b187b0343eff5091c49b7e02b76ec0546))
+* **ci:** Fix backend storage path and update Node.js to 20 ([55cda11](https://github.com/Eyad-psyco/wardrowbe/commit/55cda11c76e03a490d3faa6981f50016bb1ebfde))
+* enable dev credential login in Docker production builds ([#43](https://github.com/Eyad-psyco/wardrowbe/issues/43)) ([9aab711](https://github.com/Eyad-psyco/wardrowbe/commit/9aab71185d82a1a789a104abdbb842511285e001))
+* Ensure opensource repo works for new users ([a003dbd](https://github.com/Eyad-psyco/wardrowbe/commit/a003dbd1c65c8917148b00ac007b466fb6e3430a))
+* **frontend:** restore missing [@emnapi](https://github.com/emnapi) entries in package-lock.json ([58740db](https://github.com/Eyad-psyco/wardrowbe/commit/58740db6f33b4ecbdd074a552205d3110625454b))
+* **frontend:** sync package-lock.json with package.json ([8ce97d0](https://github.com/Eyad-psyco/wardrowbe/commit/8ce97d0d47e6f9803fbe3b83c75b7700899ecd6f))
+* **i18n:** translate defaultOccasion label in 6 locales ([6c92599](https://github.com/Eyad-psyco/wardrowbe/commit/6c9259975146e9ec6be616b36583995d9f35c1cf))
+* Item pair score initialization for learning service ([9f7de07](https://github.com/Eyad-psyco/wardrowbe/commit/9f7de07deb7216c55c2a091b481fc98be71d4ad2))
+* **item-detail-dialog:** ensure data fields are always defined and improve image display layout ([c95faca](https://github.com/Eyad-psyco/wardrowbe/commit/c95faca49330537cef9e88f0df3b4e7b111b90d2))
+* **items:** gate manual and bulk retry behind a cooldown after failure ([9338289](https://github.com/Eyad-psyco/wardrowbe/commit/9338289a0a769ea2374d7127239700528c2e6d15))
+* **items:** idempotent re-analysis and real queue visibility ([9c8cbfd](https://github.com/Eyad-psyco/wardrowbe/commit/9c8cbfdd657479f1ad7dff3a035b8a77153e0ac6))
+* keep honoring NEXT_PUBLIC_API_URL when resolving the backend ([#124](https://github.com/Eyad-psyco/wardrowbe/issues/124)) ([d8cca73](https://github.com/Eyad-psyco/wardrowbe/commit/d8cca73dd5c20315e2d7d256b112663b84894c11))
+* make OIDC issuer URL trailing-slash agnostic ([#107](https://github.com/Eyad-psyco/wardrowbe/issues/107)) ([152f175](https://github.com/Eyad-psyco/wardrowbe/commit/152f17572488bb63bc5f65a0c1a3240752db12c1))
+* modernize Python type annotations for Ruff linting ([208920b](https://github.com/Eyad-psyco/wardrowbe/commit/208920bb1f60318100584fc12a1732154570461b))
+* OIDC issue [#114](https://github.com/Eyad-psyco/wardrowbe/issues/114) ([7354232](https://github.com/Eyad-psyco/wardrowbe/commit/73542322e0d56913d5e3f249f4679c05efd0eb74))
+* **outfits:** relabel Reject to Dismiss ([c54fd57](https://github.com/Eyad-psyco/wardrowbe/commit/c54fd57e6713a48cf5a6d944c61a96fafdd9bf25))
+* prevent same-slot item pairing, add socks/tie types, fix UI text… ([#55](https://github.com/Eyad-psyco/wardrowbe/issues/55)) ([c457572](https://github.com/Eyad-psyco/wardrowbe/commit/c4575720d706d30a432900693983b0a3b38fb1a8))
+* proxy /api/v1 through a route handler so BACKEND_URL applies ([#124](https://github.com/Eyad-psyco/wardrowbe/issues/124)) ([2fff9c3](https://github.com/Eyad-psyco/wardrowbe/commit/2fff9c399e0feae14266c36a1afb5ff46c437207))
+* re-fetch items after update/archive/restore to load relationships ([edfa65c](https://github.com/Eyad-psyco/wardrowbe/commit/edfa65ce5d9516f61b6094554886f7aec0d452f2))
+* refetch outfit after commit ([f9b3ceb](https://github.com/Eyad-psyco/wardrowbe/commit/f9b3ceba0eab745682168151cee3adc112641afc))
+* regenerate frontend lockfile for musl/alpine platform ([961b09f](https://github.com/Eyad-psyco/wardrowbe/commit/961b09ff59d819d859d9068b9b72e43144b6d711))
+* Resolve all CI quality check failures ([2209cdf](https://github.com/Eyad-psyco/wardrowbe/commit/2209cdf66ff86090b95e583a6d587be429c2b357))
+* resolve CI lint/type/test failures from v1.2.0 release ([3568174](https://github.com/Eyad-psyco/wardrowbe/commit/35681741610d8f696665b63ffc2ee15ad6c94fea))
+* Resolve lint and format issues ([86799df](https://github.com/Eyad-psyco/wardrowbe/commit/86799df4e116e3ab3ee4fde4da64e9b945263dac))
+* retry AI tagging without logprobs when the provider rejects it ([2fbf38f](https://github.com/Eyad-psyco/wardrowbe/commit/2fbf38fe2d0f3811edef385fabe4b168ee12e84e))
+* retry AI tagging without logprobs when the provider rejects it ([b39815d](https://github.com/Eyad-psyco/wardrowbe/commit/b39815d52c666be445b6feb52d7f1f51abedefa3))
+* select wardrobe items beyond the first page in studio ([c73c571](https://github.com/Eyad-psyco/wardrowbe/commit/c73c5717ff23fd849154f5e44569d854400bb600))
+* show config error on login when no auth provider is registered ([22e73ad](https://github.com/Eyad-psyco/wardrowbe/commit/22e73ade5a9999fba2fb303a0533569d38294286))
+* surface real cause when outfit suggestion AI response is truncated ([#139](https://github.com/Eyad-psyco/wardrowbe/issues/139)) ([#142](https://github.com/Eyad-psyco/wardrowbe/issues/142)) ([7af8472](https://github.com/Eyad-psyco/wardrowbe/commit/7af84720f1f6932d61fde8504edcf4b281f350fa))
+* Update AccumulatedItem types to match Item interface ([3e85320](https://github.com/Eyad-psyco/wardrowbe/commit/3e853208a9b2abd99489415d77c923216825689a))
+* update cognitive cache thresh ([9170644](https://github.com/Eyad-psyco/wardrowbe/commit/9170644a47140af7fb1e485c42af2688d9b95cde))
+* update pair context for feedback without a rating ([3764dec](https://github.com/Eyad-psyco/wardrowbe/commit/3764dec0c6462aad253bed6ea3bf4a834b31e2b7))
+* use separate test database instead of falling back to production DB ([019d2e9](https://github.com/Eyad-psyco/wardrowbe/commit/019d2e9b54a51c031b72281a2c4080d206a46b76))
+* use separate test database instead of falling back to production DB ([7eae5c9](https://github.com/Eyad-psyco/wardrowbe/commit/7eae5c9882e218908ef94fe0a1d413138df1f381))
+* **worker:** stop the stale-item sweep from condemning queued items ([cc52597](https://github.com/Eyad-psyco/wardrowbe/commit/cc52597e8431f661789477a9d480964574c52cb6))
+
+
+### ♻️ Refactoring
+
+* **item:** optimize image processing and enhance type icon management ([824457c](https://github.com/Eyad-psyco/wardrowbe/commit/824457c3d0f6fd2d29566da4ed194944a5248205))
+* **items:** align single-item create with the bulk skip_ai contract ([1195693](https://github.com/Eyad-psyco/wardrowbe/commit/11956936c601bc0dea4c080d62e3c2bf186ed4b2))
+
+
+### 📝 Documentation
+
+* improve setup instructions and fix dev mode ([3b567de](https://github.com/Eyad-psyco/wardrowbe/commit/3b567de06f49c5fbe04bfbc04c58ccbf3d743d69))
+* replace star history with supporters list ([0ba2f77](https://github.com/Eyad-psyco/wardrowbe/commit/0ba2f77bb1dc72ac1ee04bc55354994cdd50a2ec))
+* update README and workflow for CI deployment on OVH VPS ([fc3fc5a](https://github.com/Eyad-psyco/wardrowbe/commit/fc3fc5a55ef6bc29b46573e4e608dc1857de6edf))
+
+
+### 🔧 Maintenance
+
+* add cognitive cache ([886e65f](https://github.com/Eyad-psyco/wardrowbe/commit/886e65f43d5fa89365bb10f122a3066ce7b81551))
+* add git-blame-ignore-revs for formatting commits ([38fcc6f](https://github.com/Eyad-psyco/wardrowbe/commit/38fcc6f210089bfd0e2bb7979fbfc26487974ba5))
+* Add pre-commit hooks for lint/format enforcement ([90343d3](https://github.com/Eyad-psyco/wardrowbe/commit/90343d39fbfd413bf6bbce273d7c7d5b205ba2cc))
+* Add tsbuildinfo to gitignore ([b5280aa](https://github.com/Eyad-psyco/wardrowbe/commit/b5280aa158a3eb9228e712444ec62fef918b094e))
+* **deploy:** enforce container recreation during VPS deployment ([d0efa87](https://github.com/Eyad-psyco/wardrowbe/commit/d0efa8709dd88006ac47538b0ef640dc471e8f85))
+* **deploy:** enhance VPS deployment workflow with path resolution and error handling ([6c7e845](https://github.com/Eyad-psyco/wardrowbe/commit/6c7e8459807e8ef1c4e9bf174bf5a2683801042e))
+* **deploy:** simplify VPS deployment process by using default docker-compose.yml ([65ae0c0](https://github.com/Eyad-psyco/wardrowbe/commit/65ae0c07799a06ad205f71dd206e1d0131f70868))
+* **deps:** bump astral-sh/setup-uv from 4 to 7 ([84ceb98](https://github.com/Eyad-psyco/wardrowbe/commit/84ceb98defc5c87b7322d4d26469d9fd65238e3f))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([8a31d2c](https://github.com/Eyad-psyco/wardrowbe/commit/8a31d2c379805284feb4e4d746d340262791b529))
+* fix linting errors and add missing type properties ([f1c4848](https://github.com/Eyad-psyco/wardrowbe/commit/f1c484883d766961410977de1a81837679a8630f))
+* **main:** release wardrowbe 1.2.1 ([#16](https://github.com/Eyad-psyco/wardrowbe/issues/16)) ([02406b6](https://github.com/Eyad-psyco/wardrowbe/commit/02406b6c66303076df10034c49d8240a7fa675cb))
+* **main:** release wardrowbe 1.2.2 ([#44](https://github.com/Eyad-psyco/wardrowbe/issues/44)) ([3f9db84](https://github.com/Eyad-psyco/wardrowbe/commit/3f9db84670cc334e6179ac836fe2d067f7d88e1d))
+* **main:** release wardrowbe 1.2.3 ([#51](https://github.com/Eyad-psyco/wardrowbe/issues/51)) ([6285682](https://github.com/Eyad-psyco/wardrowbe/commit/6285682072c17c23c47e22fe08944bbafd50554f))
+* **main:** release wardrowbe 1.2.4 ([#53](https://github.com/Eyad-psyco/wardrowbe/issues/53)) ([3aa9bb3](https://github.com/Eyad-psyco/wardrowbe/commit/3aa9bb3d584d57ae184edc30ba0c479e7d773998))
+* **main:** release wardrowbe 1.3.0 ([618b7bd](https://github.com/Eyad-psyco/wardrowbe/commit/618b7bd0eec4c482dd6431b37e51fca813468bdd))
+* **main:** release wardrowbe 1.3.1 ([#106](https://github.com/Eyad-psyco/wardrowbe/issues/106)) ([a2fa5eb](https://github.com/Eyad-psyco/wardrowbe/commit/a2fa5ebd2763e024f21e109574ced023cec2871f))
+* **main:** release wardrowbe 1.4.0 ([70461f7](https://github.com/Eyad-psyco/wardrowbe/commit/70461f7397c9e3f65f87626cf75328c419357734))
+* **main:** release wardrowbe 1.5.0 ([3bac2a2](https://github.com/Eyad-psyco/wardrowbe/commit/3bac2a268a1a1d6ff4fd09c0c5c03de09ff69b25))
+* **main:** release wardrowbe 1.5.1 ([be1711a](https://github.com/Eyad-psyco/wardrowbe/commit/be1711aba0a571da01a5d59bf8fcef4c70b30cef))
+* **main:** release wardrowbe 1.6.0 ([65f0bc7](https://github.com/Eyad-psyco/wardrowbe/commit/65f0bc7d9320b43e03b0add29fc4237df96932e8))
+* **main:** release wardrowbe 1.7.0 ([#150](https://github.com/Eyad-psyco/wardrowbe/issues/150)) ([eda843f](https://github.com/Eyad-psyco/wardrowbe/commit/eda843fd7de2a99c95774d19431def988eb58325))
+* **main:** release wardrowbe 1.8.0 ([f2c676b](https://github.com/Eyad-psyco/wardrowbe/commit/f2c676b4b1baa7d423abb9c4b5ea19aa46f6ad52))
+* **release:** Add example screens ([2add224](https://github.com/Eyad-psyco/wardrowbe/commit/2add2242a1342de29777fcb4ae74068bb6c8aab1))
+* **workflow:** allow publish-images and deploy-vps jobs to run on release-please failure ([a7dbb7b](https://github.com/Eyad-psyco/wardrowbe/commit/a7dbb7bdb1e4ae2b4ddd241ef6e530897294183c))
+
+
+### 🧪 Tests
+
+* **backend:** cover retry-cooldown claim, gating, and concurrency ([ec8778f](https://github.com/Eyad-psyco/wardrowbe/commit/ec8778f65cdb58a482be809e8e08e03a441ed991))
+* **backend:** cover stale-sweep, concurrency, and idempotency changes ([45ea759](https://github.com/Eyad-psyco/wardrowbe/commit/45ea759735a6021d7813785ec3370609e08c878f))
+* **items:** cover the tagging lifecycle ([c2e9bcc](https://github.com/Eyad-psyco/wardrowbe/commit/c2e9bcc3ffe69d5ea55e109b1b86cf4bc07b2cbf))
+
+
+### 👷 CI/CD
+
+* gate translation coverage ([6a87d29](https://github.com/Eyad-psyco/wardrowbe/commit/6a87d298b9b489f62eb0373cfc939f99362615e2))
+* install cognitive-cache via uv tool install ([6ede4f2](https://github.com/Eyad-psyco/wardrowbe/commit/6ede4f237567de29c250936f4bc05ff6b896f99e))
+* publish Docker images to GHCR on main and releases ([#83](https://github.com/Eyad-psyco/wardrowbe/issues/83)) ([af22e84](https://github.com/Eyad-psyco/wardrowbe/commit/af22e8410d37f04800dafa4cbc09a94e7fddd6bc))
+* publish versioned images on release ([#112](https://github.com/Eyad-psyco/wardrowbe/issues/112)) ([9677b39](https://github.com/Eyad-psyco/wardrowbe/commit/9677b3918728355046d3d8f306b11b9a0d61bc6e))
+* remove unused cognitive-cache context workflows ([1604071](https://github.com/Eyad-psyco/wardrowbe/commit/1604071981d779d62bce4b8423b2726ea8add56f))
+
+
+### 💄 Styling
+
+* ruff-format upload_key migration ([ced1ed8](https://github.com/Eyad-psyco/wardrowbe/commit/ced1ed8eb0708c45293be97e10e4cd4bc4130d21))
+* Update README badges to for-the-badge style ([#10](https://github.com/Eyad-psyco/wardrowbe/issues/10)) ([6eff9e9](https://github.com/Eyad-psyco/wardrowbe/commit/6eff9e9278a424ff49e1a9b1d93b5611eb05e123))
+
+
+### 📦 Build
+
+* **deps:** bump codecov/codecov-action from 4 to 6 ([436997e](https://github.com/Eyad-psyco/wardrowbe/commit/436997e8a4ff461a6336c442f6872da441dce1f7))
+
 ## [1.8.0](https://github.com/Anyesh/wardrowbe/compare/wardrowbe-v1.7.0...wardrowbe-v1.8.0) (2026-08-15)
 
 
