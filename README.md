@@ -328,6 +328,18 @@ publishes `backend-<version>` / `frontend-<version>` (e.g. `backend-1.3.0`). Pin
 a deployment with `IMAGE_TAG` / `FRONTEND_IMAGE_TAG`, or point `IMAGE_REPO`
 somewhere else entirely.
 
+### CI deploy (OVH VPS)
+
+On every push to `main`, after images publish to GHCR, [Deploy VPS](.github/workflows/deploy-vps.yml)
+SSHs into the server, syncs the git clone, pulls images, recreates containers, and
+runs migrations. Details and required secrets: [docs/plans/vps-ssh-deploy.md](docs/plans/vps-ssh-deploy.md).
+
+| Name | Type |
+|------|------|
+| `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` | secrets (required) |
+| `VPS_SSH_PORT` | secret (optional, default 22) |
+| `VPS_DEPLOY_PATH` | repository variable (absolute path to the clone) |
+
 ### Kubernetes
 
 See the [k8s/](k8s/) directory for Kubernetes manifests including:
