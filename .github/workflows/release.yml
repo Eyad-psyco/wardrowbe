@@ -27,8 +27,13 @@ jobs:
   # will not let a GITHUB_TOKEN-created release event trigger another workflow,
   # so the publish must be called from here (this run is the merge push) to tag
   # released images with their version. version is empty on non-release pushes.
+  #
+  # Always publish even if release-please fails (e.g. missing "Allow GitHub
+  # Actions to create and approve pull requests"). Deploy must not depend on
+  # opening a release PR.
   publish-images:
     needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.result == 'success' || needs.release-please.result == 'failure') }}
     permissions:
       contents: read
       packages: write
@@ -38,6 +43,7 @@ jobs:
 
   deploy-vps:
     needs: publish-images
+    if: ${{ !cancelled() && needs.publish-images.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/deploy-vps.yml

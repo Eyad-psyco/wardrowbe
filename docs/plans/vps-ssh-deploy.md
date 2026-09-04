@@ -49,6 +49,8 @@ domain exists and you move to prod+TLS, change these commands accordingly.
 - Docker Publish builds `linux/amd64` only (dropped `linux/arm64` + QEMU).
   Multi-arch arm64 via QEMU hung ~58m on `npm ci` with
   `Illegal instruction`; the OVH VPS is `x86_64`.
+- `publish-images` / `deploy-vps` still run if `release-please` fails (repo was
+  blocking Actions from creating PRs, which skipped the whole publish).
 
 ## GitHub secrets / variables
 
