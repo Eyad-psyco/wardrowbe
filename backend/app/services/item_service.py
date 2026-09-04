@@ -12,6 +12,7 @@ from app.models.item import ClothingItem, ItemHistory, ItemStatus, TaggingStatus
 from app.models.preference import UserPreference
 from app.models.user import User
 from app.schemas.item import DEFAULT_WASH_INTERVALS, ItemCreate, ItemFilter, ItemUpdate
+from app.services.image_service import ImageService
 from app.utils.clothing import custom_type_wash_intervals
 
 
@@ -158,17 +159,64 @@ class ItemService:
         image_hash: str,
         threshold: int = 8,
     ) -> ClothingItem | None:
-        # For exact duplicate detection (same hash)
-        result = await self.db.execute(
-            select(ClothingItem).where(
+        item, _ = await self.find_similar_by_hash(user_id, image_hash, threshold)
+        return item
+
+    async def find_similar_by_hash(
+        self,
+        user_id: UUID,
+        image_hash: str,
+        threshold: int = 8,
+    ) -> tuple[ClothingItem | None, int]:
+        """Closest visual match in this wardrobe, with its Hamming distance.
+
+        Exact matches are found by index; anything else needs the distance computed
+        per row, since Postgres can't do Hamming on a hex string. Returns
+        ``(None, -1)`` when nothing is within *threshold*.
+        """
+        exact = await self.db.execute(
+            select(ClothingItem)
+            .where(
                 and_(
                     ClothingItem.user_id == user_id,
                     ClothingItem.image_hash == image_hash,
                     ClothingItem.is_archived.is_(False),
                 )
             )
+            .options(selectinload(ClothingItem.additional_images))
         )
-        return result.scalar_one_or_none()
+        hit = exact.scalars().first()
+        if hit is not None:
+            return hit, 0
+
+        # Two columns, not whole rows: callers hand the winner to
+        # ItemResponse.model_validate, and eager-loading every candidate's gallery
+        # just to throw all but one away is a lot of query for one comparison.
+        # ponytail: O(n) scan over the user's hashes - fine for a wardrobe, swap for
+        # a BK-tree or pg_bktree if anyone's collection reaches five figures.
+        candidates = await self.db.execute(
+            select(ClothingItem.id, ClothingItem.image_hash).where(
+                and_(
+                    ClothingItem.user_id == user_id,
+                    ClothingItem.image_hash.isnot(None),
+                    ClothingItem.is_archived.is_(False),
+                )
+            )
+        )
+        best_id: UUID | None = None
+        best_distance = threshold + 1
+        for candidate_id, candidate_hash in candidates:
+            try:
+                distance = ImageService.hash_distance(image_hash, candidate_hash)
+            except ValueError:
+                # A malformed stored hash must not fail the whole upload.
+                continue
+            if distance < best_distance:
+                best_id, best_distance = candidate_id, distance
+
+        if best_id is None:
+            return None, -1
+        return await self.get_by_id(best_id, user_id), best_distance
 
     async def find_by_upload_key(
         self,
@@ -197,6 +245,8 @@ class ItemService:
         image_paths: dict[str, str],
         upload_key: str | None = None,
         preferences: UserPreference | None = None,
+        ai_excluded_fields: list[str] | None = None,
+        is_public: bool = False,
     ) -> ClothingItem:
         # Build tags dict
         tags = {}
@@ -224,6 +274,10 @@ class ItemService:
             purchase_date=item_data.purchase_date,
             purchase_price=item_data.purchase_price,
             favorite=item_data.favorite,
+            ai_excluded_fields=ai_excluded_fields or [],
+            # Passed in rather than read off `preferences` here, because the bulk
+            # caller can only hand over plain values - see the snapshot comment there.
+            is_public=is_public,
         )
         self._apply_custom_wash_interval(item, preferences)
 

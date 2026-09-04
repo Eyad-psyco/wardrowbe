@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from arq import create_pool
 from arq.jobs import Job
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -171,6 +172,8 @@ async def create_item(
     user_tags: str | None = Form(None),
     favorite: bool = Form(False),
     skip_ai: bool = Form(False),
+    ai_excluded_fields: str | None = Form(None),
+    force: bool = Form(False),
 ) -> ItemResponse:
     # Validate and process image
     image_service = ImageService()
@@ -186,21 +189,32 @@ async def create_item(
         )
 
     # Compute hash and check for duplicates BEFORE storing
-    try:
-        image_hash = await asyncio.to_thread(
-            image_service.compute_phash, content, image.filename or "upload.jpg"
-        )
-        existing = await item_service.find_duplicate_by_hash(current_user.id, image_hash)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Duplicate image detected. This item already exists in your wardrobe (ID: {existing.id})",
+    if not force:
+        try:
+            image_hash = await asyncio.to_thread(
+                image_service.compute_phash, content, image.filename or "upload.jpg"
             )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Failed to compute image hash: {e}")
-        # Continue without duplicate check if hash computation fails
+            existing, distance = await item_service.find_similar_by_hash(
+                current_user.id, image_hash
+            )
+            if existing:
+                # Structured so the client can show the item it matched instead of a
+                # dead-end string, and re-submit with force=true if it's not the same
+                # garment - a near match is a warning, not a verdict.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "duplicate_item",
+                        "message": "This photo looks like an item already in your wardrobe.",
+                        "distance": distance,
+                        "item": jsonable_encoder(ItemResponse.model_validate(existing)),
+                    },
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Failed to compute image hash: {e}")
+            # Continue without duplicate check if hash computation fails
 
     # Process and store image
     try:
@@ -237,6 +251,8 @@ async def create_item(
         item_data=item_data,
         image_paths=image_paths,
         preferences=current_user.preferences,
+        ai_excluded_fields=[f for f in (ai_excluded_fields or "").split(",") if f],
+        is_public=bool(getattr(current_user.preferences, "default_item_public", True)),
     )
 
     do_auto_tag = settings.effective_ai_vision_enabled and not skip_ai
@@ -312,6 +328,8 @@ async def bulk_create_items(
     # synchronous lazy-reload outside the async context and crash with
     # MissingGreenlet - use this plain value everywhere instead.
     user_id = current_user.id
+    # Same reasoning: a bool can't be expired, a relationship can.
+    default_item_public = bool(getattr(current_user.preferences, "default_item_public", True))
 
     do_auto_tag = settings.effective_ai_vision_enabled and not skip_ai
 
@@ -367,13 +385,24 @@ async def bulk_create_items(
                     image_hash = await asyncio.to_thread(
                         image_service.compute_phash, content, filename
                     )
-                    existing = await item_service.find_duplicate_by_hash(user_id, image_hash)
+                    # threshold=0, unlike the single-item path: bulk has no
+                    # "add anyway" prompt, so a near match here would silently drop
+                    # a file the user meant to keep (twenty similar white tees are a
+                    # normal wardrobe). Only a byte-identical re-upload is refused.
+                    existing, _ = await item_service.find_similar_by_hash(
+                        user_id, image_hash, threshold=0
+                    )
                     if existing:
                         results.append(
                             BulkUploadResult(
                                 filename=filename,
                                 success=False,
-                                error="Duplicate image - already exists in wardrobe",
+                                error=(
+                                    "Looks like a duplicate of "
+                                    f"{existing.name or existing.type} - skipped"
+                                ),
+                                duplicate=True,
+                                existing_item_id=existing.id,
                             )
                         )
                         failed += 1
@@ -396,6 +425,7 @@ async def bulk_create_items(
                     item_data=item_data,
                     image_paths=image_paths,
                     upload_key=upload_key,
+                    is_public=default_item_public,
                 )
 
                 if not do_auto_tag:

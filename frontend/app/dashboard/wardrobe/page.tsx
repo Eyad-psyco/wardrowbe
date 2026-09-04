@@ -435,12 +435,14 @@ export default function WardrobePage() {
     const raw = Number(searchParams.get('pageSize'));
     return PAGE_SIZE_OPTIONS.includes(raw) ? raw : 20;
   });
+  // Defaults to 'cover': filled tiles make the grid scan as a grid. Only an
+  // explicitly stored 'contain' opts back out.
   const [imageFit, setImageFit] = useState<'contain' | 'cover'>(() => {
-    if (typeof window === 'undefined') return 'contain';
+    if (typeof window === 'undefined') return 'cover';
     try {
-      return window.localStorage.getItem('wardrobe-image-fit') === 'cover' ? 'cover' : 'contain';
+      return window.localStorage.getItem('wardrobe-image-fit') === 'contain' ? 'contain' : 'cover';
     } catch {
-      return 'contain';
+      return 'cover';
     }
   });
   const [dismissedErrors, setDismissedErrors] = useState<Set<string>>(() => {
@@ -858,7 +860,7 @@ export default function WardrobePage() {
               variant={imageFit === 'cover' ? 'default' : 'outline'}
               size="icon"
               className="shrink-0"
-              title={t(imageFit === 'cover' ? 'imageFit.cover' : 'imageFit.contain')}
+              title={t(imageFit === 'cover' ? 'imageFit.fill' : 'imageFit.contain')}
               onClick={() => setImageFit((f) => (f === 'cover' ? 'contain' : 'cover'))}
             >
               <Crop className="h-4 w-4" />

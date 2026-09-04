@@ -540,3 +540,214 @@ class TestMarkItemTaggingSkipped:
         refreshed = await _get_item(db_session, item.id)
         assert refreshed.status == ItemStatus.ready
         assert refreshed.tagging_status == TaggingStatus.pending
+
+
+class TestAiExcludedFields:
+    """Fields the user muted in the upload modal must survive the worker."""
+
+    @staticmethod
+    def _stub_ai(monkeypatch, tags):
+        class _StubAI:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def analyze_image(self, path):
+                return tags
+
+        monkeypatch.setattr(tagging, "AIService", _StubAI)
+
+    @pytest.mark.asyncio
+    async def test_muted_fields_stay_empty_even_though_ai_had_answers(
+        self, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="unknown",
+            image_path="test/muted.jpg",
+            status=ItemStatus.processing,
+            ai_excluded_fields=["name", "brand", "primary_color"],
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        self._stub_ai(
+            monkeypatch,
+            ClothingTags(
+                type="jacket",
+                name="Olive Field Jacket",
+                brand="Alpha Industries",
+                primary_color="olive",
+                colors=["olive"],
+            ),
+        )
+
+        with (
+            patch("app.workers.tagging.get_db_session", return_value=db_session),
+            patch.object(db_session, "close", new_callable=AsyncMock),
+        ):
+            result = await tagging.tag_item_image({}, str(item.id), __file__)
+
+        assert result["status"] == "success"
+        refreshed = await _get_item(db_session, item.id)
+        assert refreshed.name is None
+        assert refreshed.brand is None
+        assert refreshed.primary_color is None
+        # Unmuted fields are still filled, and the item still leaves `processing`.
+        assert refreshed.type == "jacket"
+        assert refreshed.colors == ["olive"]
+        assert refreshed.status == ItemStatus.ready
+
+    @pytest.mark.asyncio
+    async def test_junk_in_excluded_fields_cannot_strand_the_item(
+        self, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="unknown",
+            image_path="test/junk-mute.jpg",
+            status=ItemStatus.processing,
+            ai_excluded_fields=["status", "ai_processed", "tags"],
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        self._stub_ai(monkeypatch, ClothingTags(type="shirt", primary_color="blue"))
+
+        with (
+            patch("app.workers.tagging.get_db_session", return_value=db_session),
+            patch.object(db_session, "close", new_callable=AsyncMock),
+        ):
+            await tagging.tag_item_image({}, str(item.id), __file__)
+
+        refreshed = await _get_item(db_session, item.id)
+        assert refreshed.status == ItemStatus.ready
+        assert refreshed.ai_processed is True
+
+
+class TestAutoRotation:
+    @pytest.mark.asyncio
+    async def test_rotates_only_when_the_model_asks_for_it(
+        self, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        calls: list[tuple] = []
+
+        async def _record(image_path, degrees, item_id):
+            calls.append((image_path, degrees))
+
+        monkeypatch.setattr(tagging, "auto_rotate_image", _record)
+
+        for path, rotation in (("test/rot-a.jpg", 0), ("test/rot-b.jpg", 270)):
+            item = ClothingItem(
+                user_id=test_user.id,
+                type="unknown",
+                image_path=path,
+                status=ItemStatus.processing,
+            )
+            db_session.add(item)
+            await db_session.commit()
+
+            class _StubAI:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                async def analyze_image(self, _path, _r=rotation):
+                    return ClothingTags(type="shirt", rotation=_r)
+
+            monkeypatch.setattr(tagging, "AIService", _StubAI)
+
+            with (
+                patch("app.workers.tagging.get_db_session", return_value=db_session),
+                patch.object(db_session, "close", new_callable=AsyncMock),
+            ):
+                await tagging.tag_item_image({}, str(item.id), __file__)
+
+        assert calls == [("test/rot-b.jpg", 270)]
+
+
+class TestUserTagWriteback:
+    @pytest.mark.asyncio
+    async def test_reuses_the_users_vocabulary_and_respects_the_mute(
+        self, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        # An existing tagged item is the only source of tag vocabulary.
+        db_session.add(
+            ClothingItem(
+                user_id=test_user.id,
+                type="shirt",
+                image_path="test/tagged.jpg",
+                status=ItemStatus.ready,
+                user_tags=["gym", "work"],
+            )
+        )
+        await db_session.commit()
+
+        offered: list[list[str]] = []
+
+        class _StubAI:
+            def __init__(self, *args, known_tags=None, **kwargs):
+                offered.append(list(known_tags or []))
+
+            async def analyze_image(self, path):
+                return ClothingTags(type="shirt", user_tags=["gym"])
+
+        monkeypatch.setattr(tagging, "AIService", _StubAI)
+
+        filled = ClothingItem(
+            user_id=test_user.id,
+            type="unknown",
+            image_path="test/tag-fill.jpg",
+            status=ItemStatus.processing,
+        )
+        muted = ClothingItem(
+            user_id=test_user.id,
+            type="unknown",
+            image_path="test/tag-mute.jpg",
+            status=ItemStatus.processing,
+            ai_excluded_fields=["user_tags"],
+        )
+        db_session.add_all([filled, muted])
+        await db_session.commit()
+
+        for item in (filled, muted):
+            with (
+                patch("app.workers.tagging.get_db_session", return_value=db_session),
+                patch.object(db_session, "close", new_callable=AsyncMock),
+            ):
+                await tagging.tag_item_image({}, str(item.id), __file__)
+
+        # The worker hands the model only what this user has typed before. Compared
+        # as a set: the distribution orders by usage count, and these two are tied.
+        assert set(offered[0]) == {"gym", "work"}
+        assert (await _get_item(db_session, filled.id)).user_tags == ["gym"]
+        assert (await _get_item(db_session, muted.id)).user_tags == []
+
+    @pytest.mark.asyncio
+    async def test_leaves_tags_the_user_typed_at_upload_alone(
+        self, db_session: AsyncSession, test_user, monkeypatch
+    ):
+        item = ClothingItem(
+            user_id=test_user.id,
+            type="unknown",
+            image_path="test/tag-keep.jpg",
+            status=ItemStatus.processing,
+            user_tags=["mine"],
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        class _StubAI:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def analyze_image(self, path):
+                return ClothingTags(type="shirt", user_tags=["gym"])
+
+        monkeypatch.setattr(tagging, "AIService", _StubAI)
+
+        with (
+            patch("app.workers.tagging.get_db_session", return_value=db_session),
+            patch.object(db_session, "close", new_callable=AsyncMock),
+        ):
+            await tagging.tag_item_image({}, str(item.id), __file__)
+
+        assert (await _get_item(db_session, item.id)).user_tags == ["mine"]

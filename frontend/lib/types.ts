@@ -153,6 +153,7 @@ export interface Preferences {
   avoid_repeat_days: number;
   prefer_underused_items: boolean;
   variety_level: 'low' | 'moderate' | 'high';
+  default_item_public: boolean;
   ai_endpoints: AIEndpoint[];
   custom_item_types: CustomItemType[];
 }

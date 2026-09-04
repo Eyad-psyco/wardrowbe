@@ -41,6 +41,11 @@ class ClothingTags(BaseModel):
     brand: str | None = None
     condition: str | None = None
     features: list[str] = []
+    # Only ever tags this user has typed before - never new vocabulary.
+    user_tags: list[str] = []
+    name: str | None = None
+    # Degrees counter-clockwise the stored image needs to sit upright. 0 = leave alone.
+    rotation: int = 0
     confidence: float = 0.0
     logprobs_confidence: float | None = None
     description: str | None = None
@@ -51,6 +56,7 @@ TAGGING_PROMPT = load_prompt("clothing_analysis")
 DESCRIPTION_PROMPT = load_prompt("clothing_description")
 
 _TYPE_VOCABULARY_MARKER = "TYPE (required, pick one):"
+_TAG_VOCABULARY_MARKER = "TAGS (pick only from this exact list"
 
 
 def extend_type_vocabulary(prompt: str, extra_types: list[str]) -> str:
@@ -72,6 +78,29 @@ def extend_type_vocabulary(prompt: str, extra_types: list[str]) -> str:
     if line_end < 0:
         line_end = len(prompt)
     return f"{prompt[:line_end]}, {', '.join(extra_types)}{prompt[line_end:]}"
+
+
+def set_tag_vocabulary(prompt: str, known_tags: list[str]) -> str:
+    """Replace the TAGS placeholder line with the user's own tags.
+
+    Replaces rather than appends (unlike the TYPE vocabulary, which extends a real
+    built-in list): there is no global tag vocabulary, only whatever this user has
+    typed before, and the placeholder must not survive as a suggestion. A user with
+    no tags yet keeps the "(none)" line, which reads as "always answer []".
+    """
+    if not known_tags:
+        return prompt
+    marker_at = prompt.find(_TAG_VOCABULARY_MARKER)
+    if marker_at < 0:
+        logger.warning("TAGS vocabulary marker missing from tagging prompt")
+        return prompt
+    line_start = prompt.find("\n", marker_at)
+    if line_start < 0:
+        return prompt
+    line_end = prompt.find("\n", line_start + 1)
+    if line_end < 0:
+        line_end = len(prompt)
+    return f"{prompt[: line_start + 1]}{', '.join(known_tags)}{prompt[line_end:]}"
 
 
 # Valid values for validation
@@ -173,6 +202,58 @@ VALID_STYLES = {
     "rugged",
 }
 VALID_SEASONS = {"spring", "summer", "fall", "winter", "all-season"}
+VALID_OCCASIONS = {
+    "everyday",
+    "work",
+    "formal-event",
+    "party",
+    "date",
+    "sport",
+    "travel",
+    "lounge",
+    "outdoor",
+}
+VALID_CONDITIONS = {"new", "excellent", "good", "worn", "damaged"}
+VALID_FEATURES = {
+    "pockets",
+    "zipper",
+    "buttons",
+    "hood",
+    "collar",
+    "drawstring",
+    "embroidery",
+    "print",
+    "distressed",
+    "pleated",
+    "belted",
+    "cuffed",
+    "ribbed",
+    "lined",
+    "sheer",
+    "sequined",
+}
+VALID_ROTATIONS = {0, 90, 180, 270}
+
+
+_NULLISH_TEXT = {"", "null", "none", "n/a", "na", "unknown", "unbranded", "no brand"}
+
+
+def clamp_text(value: object, max_len: int) -> str | None:
+    """Accept a free-text model answer, or None if it said nothing useful."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().strip('"').strip()
+    if cleaned.lower() in _NULLISH_TEXT:
+        return None
+    return cleaned[:max_len]
+
+
+def validate_rotation(value: object) -> int:
+    try:
+        rotation = int(value) % 360  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return rotation if rotation in VALID_ROTATIONS else 0
 
 
 def compute_tag_completeness(tags: "ClothingTags") -> float:
@@ -282,7 +363,12 @@ class AIEndpointConfig:
 class AIService:
     """Service for AI-powered image analysis and text generation."""
 
-    def __init__(self, endpoints: list[dict] | None = None, custom_types: list[dict] | None = None):
+    def __init__(
+        self,
+        endpoints: list[dict] | None = None,
+        custom_types: list[dict] | None = None,
+        known_tags: list[str] | None = None,
+    ):
         """
         Initialize AI service with optional custom endpoints.
 
@@ -292,6 +378,9 @@ class AIService:
             custom_types: User-defined clothing types. Those with a body slot are
                       offered to the vision model and accepted back from it; those
                       without one (role=None) are deliberately never mentioned.
+            known_tags: Free-text tags this user has already used. The model may
+                      reuse them and nothing else - an empty list means it can
+                      never return a tag at all.
 
         Raises:
             AIDisabledError: backstop when internal AI is disabled; call sites
@@ -341,7 +430,12 @@ class AIService:
             t["value"] for t in (custom_types or []) if t.get("role") and t.get("value")
         ]
         self._valid_types = VALID_TYPES | set(enabled_custom)
-        self._tagging_prompt = extend_type_vocabulary(TAGGING_PROMPT, enabled_custom)
+        # Tags are already stored lowercase (normalize_user_tags), so the set the
+        # parser validates against and the list the prompt offers are the same shape.
+        self._known_tags = {t.strip().lower() for t in (known_tags or []) if t and t.strip()}
+        self._tagging_prompt = set_tag_vocabulary(
+            extend_type_vocabulary(TAGGING_PROMPT, enabled_custom), sorted(self._known_tags)
+        )
 
     def _get_headers(self) -> dict:
         """Get headers for AI API requests, including auth if configured."""
@@ -474,6 +568,17 @@ class AIService:
         tags.style = validate_list(data.get("style", []), VALID_STYLES)
         tags.season = validate_list(data.get("season", []), VALID_SEASONS)
         tags.fit = validate_value(data.get("fit"), VALID_FIT)
+        tags.occasion = validate_list(data.get("occasion", []), VALID_OCCASIONS)
+        tags.condition = validate_value(data.get("condition"), VALID_CONDITIONS)
+        tags.features = validate_list(data.get("features", []), VALID_FEATURES)
+        # The prompt asks for existing tags only; this is what enforces it. Anything
+        # the model invents is dropped here rather than growing the user's vocabulary.
+        tags.user_tags = validate_list(data.get("tags", []), self._known_tags)
+        # Free text, so validated by shape rather than vocabulary: brand names and
+        # item names are unbounded, but the columns behind them are String(100).
+        tags.name = clamp_text(data.get("name"), 100)
+        tags.brand = clamp_text(data.get("brand"), 100)
+        tags.rotation = validate_rotation(data.get("rotation"))
         tags.confidence = compute_tag_completeness(tags)
 
         logger.info(

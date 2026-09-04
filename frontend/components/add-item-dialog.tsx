@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, Loader2, CheckCircle2, AlertCircle, Image as ImageIcon } from 'lucide-react';
+import { Upload, X, Loader2, CheckCircle2, AlertCircle, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -39,6 +39,9 @@ import { useCreateItem, useBulkCreateItems, useAddItemImages, useItemTags, BulkU
 import { useFeatures } from '@/lib/hooks/use-features';
 import { useClothingTypes, useClothingColors } from '@/lib/hooks/use-translated-constants';
 import { TagInput } from '@/components/tag-input';
+import { ApiError } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { Item } from '@/lib/types';
 import { useTranslations } from 'next-intl';
 
 interface AddItemDialogProps {
@@ -50,6 +53,38 @@ interface FileWithPreview {
   file: File;
   preview: string;
   id: string;
+}
+
+// The single-tab inputs that map to a column the tagging worker writes. Keys are
+// the backend field names, because they travel to it verbatim as ai_excluded_fields.
+type AiField = 'type' | 'name' | 'brand' | 'primary_color' | 'user_tags';
+const AI_FIELDS: AiField[] = ['type', 'name', 'brand', 'primary_color', 'user_tags'];
+
+/** Marks whether AI will fill a field. Lit = it will; dimmed = hands off. */
+function AiFieldToggle({
+  on,
+  onToggle,
+  title,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={title}
+      aria-label={title}
+      aria-pressed={on}
+      className={cn(
+        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
+        on ? 'text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'
+      )}
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+    </button>
+  );
 }
 
 export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
@@ -66,6 +101,16 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const [primaryColor, setPrimaryColor] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  // On = let the AI fill it. Typing flips a field off automatically; the toggle is
+  // how you turn it back on, or mute a field you want left blank.
+  const [aiFields, setAiFields] = useState<Record<AiField, boolean>>({
+    type: true,
+    name: true,
+    brand: true,
+    primary_color: true,
+    user_tags: true,
+  });
+  const [duplicate, setDuplicate] = useState<{ item: Item; distance: number } | null>(null);
 
   // Bulk upload state
   const [bulkFiles, setBulkFiles] = useState<FileWithPreview[]>([]);
@@ -134,11 +179,12 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     multiple: true,
   });
 
-  const handleSingleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const setAiField = (field: AiField, on: boolean) =>
+    setAiFields((prev) => (prev[field] === on ? prev : { ...prev, [field]: on }));
 
-    if (files.length === 0) return;
-
+  // Rebuilt per attempt rather than mutated, so the "add anyway" retry can't
+  // accumulate a second `force` entry on the same FormData.
+  const buildSingleFormData = (force: boolean) => {
     const formData = new FormData();
     formData.append('image', files[0].file);
     // Type is optional - AI will detect if not provided
@@ -148,14 +194,33 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     if (primaryColor) formData.append('primary_color', primaryColor);
     if (notes) formData.append('notes', notes);
     if (tags.length) formData.append('user_tags', tags.join(','));
+    const muted = AI_FIELDS.filter((f) => !aiFields[f]);
+    if (muted.length) formData.append('ai_excluded_fields', muted.join(','));
+    if (force) formData.append('force', 'true');
+    return formData;
+  };
+
+  const submitSingle = async (force: boolean) => {
+    if (files.length === 0) return;
 
     let created: { id: string };
     try {
-      created = await createItem.mutateAsync(formData);
+      created = await createItem.mutateAsync(buildSingleFormData(force));
     } catch (error) {
+      // A near-identical photo is a warning, not a wall: show what it matched and
+      // let the user decide, instead of leaving them with a toast and no way past.
+      const detail =
+        error instanceof ApiError && error.status === 409
+          ? (error.data as { detail?: { code?: string; item?: Item; distance?: number } })?.detail
+          : undefined;
+      if (detail?.code === 'duplicate_item' && detail.item) {
+        setDuplicate({ item: detail.item, distance: detail.distance ?? 0 });
+        return;
+      }
       console.error('Failed to create item:', error);
       return;
     }
+    setDuplicate(null);
 
     // The item exists from here on, so a failed gallery upload must not read as
     // "nothing was created" - warn and close either way.
@@ -173,6 +238,11 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     }
 
     handleClose();
+  };
+
+  const handleSingleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitSingle(false);
   };
 
   const handleBulkSubmit = async () => {
@@ -234,6 +304,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     setPrimaryColor('');
     setNotes('');
     setTags([]);
+    setAiFields({ type: true, name: true, brand: true, primary_color: true, user_tags: true });
+    setDuplicate(null);
 
     // Bulk upload cleanup - also clean up from the ref
     bulkFiles.forEach(revoke);
@@ -362,8 +434,21 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="type">{t('typeLabel')}</Label>
-                  <Select value={type} onValueChange={setType}>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="type">{t('typeLabel')}</Label>
+                    <AiFieldToggle
+                      on={aiFields.type}
+                      onToggle={() => setAiField('type', !aiFields.type)}
+                      title={t(aiFields.type ? 'aiField.on' : 'aiField.off')}
+                    />
+                  </div>
+                  <Select
+                    value={type}
+                    onValueChange={(v) => {
+                      setType(v);
+                      setAiField('type', false);
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder={t('letAiDetect')} />
                     </SelectTrigger>
@@ -378,29 +463,62 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="name">{t('namePlaceholder')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="name">{t('namePlaceholder')}</Label>
+                    <AiFieldToggle
+                      on={aiFields.name}
+                      onToggle={() => setAiField('name', !aiFields.name)}
+                      title={t(aiFields.name ? 'aiField.on' : 'aiField.off')}
+                    />
+                  </div>
                   <Input
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setAiField('name', false);
+                    }}
                     placeholder={t('nameInputPlaceholder')}
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="brand">{t('brandPlaceholder')}</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="brand">{t('brandPlaceholder')}</Label>
+                      <AiFieldToggle
+                        on={aiFields.brand}
+                        onToggle={() => setAiField('brand', !aiFields.brand)}
+                        title={t(aiFields.brand ? 'aiField.on' : 'aiField.off')}
+                      />
+                    </div>
                     <Input
                       id="brand"
                       value={brand}
-                      onChange={(e) => setBrand(e.target.value)}
+                      onChange={(e) => {
+                        setBrand(e.target.value);
+                        setAiField('brand', false);
+                      }}
                       placeholder={t('brandInputPlaceholder')}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="color">{t('primaryColor')}</Label>
-                    <Select value={primaryColor} onValueChange={setPrimaryColor}>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="color">{t('primaryColor')}</Label>
+                      <AiFieldToggle
+                        on={aiFields.primary_color}
+                        onToggle={() => setAiField('primary_color', !aiFields.primary_color)}
+                        title={t(aiFields.primary_color ? 'aiField.on' : 'aiField.off')}
+                      />
+                    </div>
+                    <Select
+                      value={primaryColor}
+                      onValueChange={(v) => {
+                        setPrimaryColor(v);
+                        setAiField('primary_color', false);
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder={t('selectPlaceholder')} />
                       </SelectTrigger>
@@ -421,6 +539,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                   </div>
                 </div>
 
+                <p className="text-xs text-muted-foreground">{t('aiField.hint')}</p>
+
                 <div className="space-y-2">
                   <Label htmlFor="notes">{t('notesPlaceholder')}</Label>
                   <Input
@@ -432,10 +552,20 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>{t('tagsLabel')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>{t('tagsLabel')}</Label>
+                    <AiFieldToggle
+                      on={aiFields.user_tags}
+                      onToggle={() => setAiField('user_tags', !aiFields.user_tags)}
+                      title={t(aiFields.user_tags ? 'aiField.onTags' : 'aiField.off')}
+                    />
+                  </div>
                   <TagInput
                     value={tags}
-                    onChange={setTags}
+                    onChange={(next) => {
+                      setTags(next);
+                      setAiField('user_tags', false);
+                    }}
                     suggestions={tagDistribution || []}
                     placeholder={t('tagsInputPlaceholder')}
                   />
@@ -645,6 +775,50 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={duplicate !== null} onOpenChange={(open) => !open && setDuplicate(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('duplicate.title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {duplicate?.distance === 0 ? t('duplicate.exact') : t('duplicate.similar')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {duplicate && (
+          <div className="flex items-center gap-3 rounded-lg border p-3">
+            {duplicate.item.thumbnail_url && (
+              <img
+                src={duplicate.item.thumbnail_url}
+                alt={duplicate.item.name || duplicate.item.type}
+                className="h-16 w-16 rounded-md object-cover"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {duplicate.item.name || duplicate.item.type}
+              </p>
+              {duplicate.item.brand && (
+                <p className="truncate text-xs text-muted-foreground">{duplicate.item.brand}</p>
+              )}
+            </div>
+          </div>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('duplicate.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              // Radix closes the dialog on action click; the state reset in
+              // submitSingle's success path would otherwise fight the retry.
+              e.preventDefault();
+              void submitSingle(true);
+            }}
+            disabled={createItem.isPending}
+          >
+            {t('duplicate.addAnyway')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <AlertDialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
       <AlertDialogContent>

@@ -343,3 +343,110 @@ class TestLogprobsRejection:
         assert content is None
         assert err is not None
         assert mock_post.call_count == 1
+
+
+class TestExtendedFieldParsing:
+    """The fields added so the AI fills the whole form, not just the analysis blob."""
+
+    def test_parses_every_extended_field(self):
+        service = AIService()
+        response = """
+        {
+            "type": "jacket",
+            "primary_color": "olive",
+            "pattern": "solid",
+            "formality": "casual",
+            "fit": "relaxed",
+            "occasion": ["everyday", "travel"],
+            "condition": "good",
+            "name": "Olive Field Jacket",
+            "brand": "Alpha Industries",
+            "features": ["pockets", "zipper"],
+            "rotation": 90
+        }
+        """
+        tags = service._parse_tags_from_response(response)
+        assert tags.occasion == ["everyday", "travel"]
+        assert tags.condition == "good"
+        assert tags.name == "Olive Field Jacket"
+        assert tags.brand == "Alpha Industries"
+        assert tags.features == ["pockets", "zipper"]
+        assert tags.rotation == 90
+
+    def test_drops_out_of_vocabulary_extended_values(self):
+        service = AIService()
+        tags = service._parse_tags_from_response(
+            '{"type":"shirt","occasion":["everyday","brunch"],'
+            '"condition":"pristine","features":["zipper","glitter"]}'
+        )
+        assert tags.occasion == ["everyday"]
+        assert tags.condition is None
+        assert tags.features == ["zipper"]
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ('"brand": null', None),
+            ('"brand": "null"', None),
+            ('"brand": "Unbranded"', None),
+            ('"brand": "  Levi\'s  "', "Levi's"),
+            (f'"brand": "{"x" * 200}"', "x" * 100),
+        ],
+    )
+    def test_brand_is_shape_validated_not_vocabulary_validated(self, raw, expected):
+        service = AIService()
+        tags = service._parse_tags_from_response('{"type":"jeans",' + raw + "}")
+        assert tags.brand == expected
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [("0", 0), ("90", 90), ("180", 180), ("270", 270), ("45", 0), ('"90"', 90), ("null", 0)],
+    )
+    def test_rotation_falls_back_to_no_rotation(self, raw, expected):
+        service = AIService()
+        tags = service._parse_tags_from_response('{"type":"shirt","rotation":' + raw + "}")
+        assert tags.rotation == expected
+
+    def test_missing_extended_fields_stay_empty(self):
+        service = AIService()
+        tags = service._parse_tags_from_response('{"type":"shirt","primary_color":"blue"}')
+        assert tags.name is None
+        assert tags.brand is None
+        assert tags.rotation == 0
+        assert tags.occasion == []
+
+
+class TestKnownTagAutofill:
+    """The AI may reuse this user's tags and invent none."""
+
+    def test_only_offers_tags_the_user_already_has(self):
+        prompt = AIService(known_tags=["gym", "work"])._tagging_prompt
+        section = prompt[prompt.index("TAGS (") :]
+        assert "gym, work" in section
+        assert "(none)" not in section
+
+    def test_placeholder_survives_for_a_user_with_no_tags_yet(self):
+        prompt = AIService()._tagging_prompt
+        assert "(none)" in prompt[prompt.index("TAGS (") :]
+
+    def test_invented_tags_are_dropped(self):
+        service = AIService(known_tags=["gym", "work"])
+        tags = service._parse_tags_from_response(
+            '{"type":"shirt","tags":["gym","brand-new-tag","work"]}'
+        )
+        assert tags.user_tags == ["gym", "work"]
+
+    def test_casing_and_padding_are_reconciled_with_the_stored_form(self):
+        service = AIService(known_tags=["Gym ", "gym", "Work"])
+        tags = service._parse_tags_from_response('{"type":"shirt","tags":["GYM","  work "]}')
+        assert tags.user_tags == ["gym", "work"]
+
+    def test_a_user_with_no_tags_can_never_be_given_one(self):
+        service = AIService()
+        tags = service._parse_tags_from_response('{"type":"shirt","tags":["gym","summer"]}')
+        assert tags.user_tags == []
+
+    def test_no_tags_key_is_not_an_error(self):
+        """Lenient: plenty of items simply won't match anything the user has."""
+        service = AIService(known_tags=["gym"])
+        assert service._parse_tags_from_response('{"type":"shirt"}').user_tags == []

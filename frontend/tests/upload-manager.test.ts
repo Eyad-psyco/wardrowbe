@@ -196,21 +196,70 @@ describe('retry/dismiss actions', () => {
     expect(await getPendingUploads()).toHaveLength(0)
   })
 
-  it('dismissAll removes every terminal record without retrying', async () => {
-    await enqueueFiles([makeFile('bad.jpg')], false)
+})
+
+describe('self-scheduled retry', () => {
+  it('drains a record that failed transiently without another startDrain() call', async () => {
+    // The reported "bulk upload gets stuck" bug: the first chunk fails, the
+    // records go back to 'pending' behind their backoff, and nothing ever
+    // starts another pass - so they neither upload nor report as failed.
+    await enqueueFiles([makeFile('a.jpg'), makeFile('b.jpg')], false)
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('network down'))
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse({
-        total: 1,
-        successful: 0,
-        failed: 1,
-        results: [{ filename: 'bad.jpg', success: false, error: 'bad' }],
+        total: 2,
+        successful: 2,
+        failed: 0,
+        results: [
+          { filename: 'a.jpg', success: true },
+          { filename: 'b.jpg', success: true },
+        ],
       })
     )
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      await manager.startDrain()
+      expect(await getPendingUploads()).toHaveLength(2)
+
+      await vi.advanceTimersByTimeAsync(6000)
+      // The retry pass's IndexedDB work resolves on setImmediate, which the
+      // fake clock doesn't drive - let those macrotasks run.
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setImmediate(r))
+      }
+
+      expect(await getPendingUploads()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('per-record state for the queue dialog', () => {
+  it('reports every queued file with its own status, in the order added', async () => {
+    await enqueueFiles([makeFile('a.jpg'), makeFile('b.jpg')], false)
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        total: 2,
+        successful: 1,
+        failed: 1,
+        results: [
+          { filename: 'a.jpg', success: true },
+          { filename: 'b.jpg', success: false, error: 'Invalid image format' },
+        ],
+      })
+    )
+
     await manager.startDrain()
-    expect((await manager.getState()).terminalRecords).toHaveLength(1)
+    const { records } = await manager.getState()
 
-    await manager.dismissAll()
+    expect(records.map((r) => [r.filename, r.status, r.lastError])).toEqual([
+      ['b.jpg', 'failed', 'Invalid image format'],
+    ])
 
-    expect(await getPendingUploads()).toHaveLength(0)
+    // Cancelling one record drops just that record from the queue.
+    await manager.dismiss(records[0].id)
+    expect((await manager.getState()).records).toHaveLength(0)
   })
 })

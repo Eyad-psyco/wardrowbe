@@ -238,5 +238,58 @@ describe('/api/v1 catch-all proxy', () => {
       const body = await res.json()
       expect(body.detail).toContain('http://backend:8000')
     })
+
+    it('returns 499, not a BACKEND_URL hint, when the incoming body stream died', async () => {
+      // What a dev-server recompile or a closed tab looks like here: the
+      // source stream is gone, so forwarding it fails with a bare
+      // "fetch failed" that is indistinguishable from a real outage.
+      process.env.BACKEND_URL = 'http://backend:8000'
+      global.fetch = vi.fn().mockRejectedValue(
+        Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('aborted'), { code: 'ECONNRESET' }),
+        })
+      ) as unknown as typeof fetch
+
+      const res = await POST(
+        new NextRequest('http://localhost:3000/api/v1/items/bulk', { method: 'POST', body: 'chunk' })
+      )
+
+      expect(res.status).toBe(499)
+    })
+
+    it('does not name BACKEND_URL for a request that broke in transit', async () => {
+      process.env.BACKEND_URL = 'http://backend:8000'
+      global.fetch = vi.fn().mockRejectedValue(
+        Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
+        })
+      ) as unknown as typeof fetch
+
+      const res = await POST(
+        new NextRequest('http://localhost:3000/api/v1/items/bulk', { method: 'POST', body: 'chunk' })
+      )
+
+      expect(res.status).toBe(502)
+      const body = await res.json()
+      expect(body.detail).not.toContain('BACKEND_URL')
+      expect(body.detail).toContain('other side closed')
+    })
+
+    it('does not blame the backend when the client aborted the request', async () => {
+      process.env.BACKEND_URL = 'http://backend:8000'
+      global.fetch = vi.fn().mockRejectedValue(new TypeError('fetch failed')) as unknown as typeof fetch
+      const controller = new AbortController()
+      const request = new NextRequest('http://localhost:3000/api/v1/items/bulk', {
+        method: 'POST',
+        body: 'partial-body',
+        signal: controller.signal,
+      })
+      controller.abort()
+
+      const res = await POST(request)
+
+      expect(res.status).toBe(499)
+      expect(await res.text()).toBe('')
+    })
   })
 })

@@ -176,5 +176,11 @@
     "unit": "Temperature Unit"
   },
   "title": "Settings",
-  "unsavedChanges": "You have unsaved changes. Leave this page?"
+  "unsavedChanges": "You have unsaved changes. Leave this page?",
+  "privacy": {
+    "title": "Privacy",
+    "description": "Control what family members can see by default.",
+    "defaultItemPublic": "Share new items with family",
+    "defaultItemPublicHint": "When off, every item you add stays private until you share it. You can always change this per item."
+  }
 }

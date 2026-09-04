@@ -257,6 +257,11 @@ async def test_tag_item_image_runs_ai_when_enabled(monkeypatch):
         def scalar_one_or_none(self):
             return SimpleNamespace(user_id=uuid4(), ai_endpoints=None)
 
+        def all(self):
+            # The tag-vocabulary lookup shares this session; an empty wardrobe
+            # offers no tags, which is all this test needs.
+            return []
+
     class _Session:
         async def execute(self, *args, **kwargs):
             return _Result()

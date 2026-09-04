@@ -3,15 +3,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
-import { api, getAccessToken, setAccessToken, ApiError, NetworkError } from '@/lib/api';
+import { api, getAccessToken, setAccessToken, ApiError, NetworkError, errorMessageFrom } from '@/lib/api';
 import { Item, ItemListResponse, ItemFilter, WashHistoryEntry, ItemImage, TaggingProgress } from '@/lib/types';
 import { chunkArray } from '@/lib/utils';
 import { enqueueFiles } from '@/lib/upload-queue';
-import { startDrain } from '@/lib/upload-manager';
-
-// Must not exceed the backend's MAX_BULK_UPLOAD_COUNT setting, or every chunk
-// larger than the server's limit fails with a 400.
-const BULK_UPLOAD_CHUNK_SIZE = 20;
+// Same chunk size as the durable queue's own drain - the two paths hit the
+// same endpoint, so there is one number, not two that can drift apart.
+import { startDrain, BULK_UPLOAD_CHUNK_SIZE } from '@/lib/upload-manager';
 
 // Helper to set token if available (for NextAuth mode)
 function useSetTokenIfAvailable() {
@@ -119,7 +117,7 @@ export function useCreateItem() {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new ApiError(
-          data.detail || 'Failed to create item',
+          errorMessageFrom(data, 'Failed to create item'),
           response.status,
           data
         );

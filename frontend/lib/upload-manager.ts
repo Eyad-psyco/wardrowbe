@@ -11,12 +11,25 @@ import {
   purgeAbandoned,
   dismiss as dismissRecord,
   type QueuedUpload,
+  type UploadStatus,
 } from '@/lib/upload-queue';
 import type { BulkUploadResponse } from '@/lib/hooks/use-items';
 
-const BULK_UPLOAD_CHUNK_SIZE = 20;
+// Files per bulk request. Deliberately well under the backend's cap of 20:
+// one request carries every byte of its chunk, so a 20-photo chunk is a
+// multi-minute upload that a single blip (tab reload, dev-server recompile,
+// flaky wifi) throws away in full and re-sends from scratch. Five keeps a
+// request seconds long, makes progress visible as it lands, and bounds what a
+// retry costs.
+export const BULK_UPLOAD_CHUNK_SIZE = 5;
 const MAX_ATTEMPTS = 5;
 const RETRY_BACKOFF_BASE_MS = 5000;
+// A request that never settles (dev-server restart mid-upload, dropped
+// connection, throttled background tab) would otherwise hold isDraining
+// forever, which no retry pass can break out of.
+// ponytail: one flat ceiling for a whole chunk; make it per-byte if slow
+// mobile uploads of 20 full-size photos start getting aborted mid-flight.
+const CHUNK_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface TerminalRecord {
   id: string;
@@ -25,9 +38,21 @@ export interface TerminalRecord {
   lastError: string | null;
 }
 
+// Every queued file, whatever its state - what the upload queue dialog lists
+// so a single file can be inspected and cancelled on its own.
+export interface QueuedRecord {
+  id: string;
+  filename: string;
+  size: number;
+  status: UploadStatus;
+  attempts: number;
+  lastError: string | null;
+}
+
 export interface DrainState {
   draining: boolean;
   remaining: number;
+  records: QueuedRecord[];
   terminalRecords: TerminalRecord[];
   storagePersisted: boolean | null;
 }
@@ -38,6 +63,7 @@ let queryClient: QueryClient | null = null;
 let isDraining = false;
 const listeners = new Set<Listener>();
 let beforeUnloadRegistered = false;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function onBeforeUnload(e: BeforeUnloadEvent) {
   e.preventDefault();
@@ -61,7 +87,20 @@ async function computeState(): Promise<DrainState> {
     }
   }
 
-  return { draining: isDraining, remaining, terminalRecords, storagePersisted };
+  return {
+    draining: isDraining,
+    remaining,
+    records: records.map((r) => ({
+      id: r.id,
+      filename: r.filename,
+      size: r.size,
+      status: r.status,
+      attempts: r.attempts,
+      lastError: r.lastError,
+    })),
+    terminalRecords,
+    storagePersisted,
+  };
 }
 
 async function emit(): Promise<void> {
@@ -94,6 +133,7 @@ async function uploadChunk(chunk: QueuedUpload[]): Promise<BulkUploadResponse> {
     body: formData,
     credentials: 'include',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    signal: AbortSignal.timeout(CHUNK_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -165,8 +205,28 @@ async function drainOnce(): Promise<boolean> {
   return true;
 }
 
+// A retryable failure leaves its records 'pending' behind a backoff that only
+// a later drain pass can clear - and nothing else ever starts one: the upload
+// dialog calls startDrain() once when it stages files, the indicator once when
+// it mounts. Without this the queue silently stops after the first failed
+// chunk and the indicator spins "uploading in the background" forever; the
+// record never even reaches MAX_ATTEMPTS to be reported as failed.
+async function scheduleNextPass(): Promise<void> {
+  if (retryTimer || isDraining) return;
+  const records = await getPendingUploads();
+  if (!records.some((r) => r.status !== 'failed')) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void startDrain();
+  }, RETRY_BACKOFF_BASE_MS);
+}
+
 export async function startDrain(): Promise<void> {
   if (isDraining) return;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   isDraining = true;
   await emit();
   try {
@@ -179,6 +239,7 @@ export async function startDrain(): Promise<void> {
   } finally {
     isDraining = false;
     await emit();
+    await scheduleNextPass();
   }
 }
 
@@ -193,14 +254,14 @@ export async function retryAll(): Promise<void> {
   void startDrain();
 }
 
+// Cancels/dismisses one queued file. Safe mid-chunk: markDone/markTerminal
+// no-op on a record that is already gone, so the drain in flight won't
+// resurrect it.
+// ponytail: a file whose chunk request is already on the wire can still land
+// as an item on the server - abort the chunk and re-send the survivors if
+// cancelling an in-flight upload has to be exact.
 export async function dismiss(id: string): Promise<void> {
   await dismissRecord(id);
-  await emit();
-}
-
-export async function dismissAll(): Promise<void> {
-  const { terminalRecords } = await computeState();
-  await Promise.all(terminalRecords.map((r) => dismissRecord(r.id)));
   await emit();
 }
 

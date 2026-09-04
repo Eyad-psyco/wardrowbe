@@ -196,7 +196,10 @@ export async function enqueueFiles(
 export async function getPendingUploads(): Promise<QueuedUpload[]> {
   if (!hasIndexedDb()) return [];
   const records = await getAllRecords();
-  return records.filter((r) => r.status !== 'done');
+  // Ordered by when the file was added, not by key: the store is keyed on a
+  // random UUID, so the raw order is arbitrary - which would upload files in
+  // a random order and reshuffle the queue dialog's list on every update.
+  return records.filter((r) => r.status !== 'done').sort((a, b) => a.addedAt - b.addedAt);
 }
 
 export async function markUploading(id: string): Promise<void> {

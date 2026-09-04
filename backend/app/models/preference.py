@@ -44,6 +44,9 @@ class UserPreference(Base):
     prefer_underused_items: Mapped[bool] = mapped_column(Boolean, default=True)
     variety_level: Mapped[str] = mapped_column(String(20), default="moderate")
 
+    # Privacy - the is_public value new items are created with
+    default_item_public: Mapped[bool] = mapped_column(Boolean, default=True)
+
     # Restrictions
     excluded_item_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), default=list

@@ -49,7 +49,20 @@
     "tagsLabel": "Tags",
     "title": "Add Items",
     "typeLabel": "Type (AI will detect if empty)",
-    "uploading": "Uploading..."
+    "uploading": "Uploading...",
+    "aiField": {
+      "on": "AI will fill this field — click to leave it blank",
+      "off": "AI will not touch this field — click to let it fill",
+      "hint": "Fields marked with a sparkle are filled in by AI after upload. Typing your own value turns that off.",
+      "onTags": "AI will reuse your existing tags where they fit — click to leave this blank"
+    },
+    "duplicate": {
+      "title": "Already in your wardrobe?",
+      "exact": "You have already uploaded this exact photo.",
+      "similar": "This photo looks very close to an item you already have.",
+      "addAnyway": "Add anyway",
+      "cancel": "Cancel upload"
+    }
   },
   "ai": {
     "analysisFailed": "Analysis Failed",
@@ -240,15 +253,23 @@
   "typesSelected": "{count} types",
   "uploadQueue": {
     "cancel": "Cancel",
+    "cancelAll": "Cancel all",
     "dismiss": "Dismiss",
     "dismissAll": "Dismiss all",
+    "empty": "Nothing left in the upload queue",
     "failedCount": "{count, plural, one {# photo could not be uploaded} other {# photos could not be uploaded}}",
     "keepTabOpen": "Keep this tab open until this finishes",
     "remaining": "{count, plural, one {# photo uploading in the background} other {# photos uploading in the background}}",
     "resuming": "Resuming {count, plural, one {# photo} other {# photos}} from an earlier import",
     "retry": "Retry",
     "retryAll": "Retry all",
+    "reviewHint": "Check each photo below, retry or cancel it individually",
+    "statusFailed": "Could not be uploaded",
+    "statusQueued": "Waiting to upload",
+    "statusRetrying": "Retrying (attempt {attempt})",
+    "statusUploading": "Uploading",
     "storageNotPersisted": "Your browser may clear queued photos if you navigate away before this finishes",
+    "title": "Uploads",
     "unprotectedWarning": "{count, plural, one {# file could not be protected against interruption (storage full)} other {# files could not be protected against interruption (storage full)}} - keep this tab open until upload completes"
   },
   "wearCount": "{count, plural, one {Worn # time} other {Worn # times}}",

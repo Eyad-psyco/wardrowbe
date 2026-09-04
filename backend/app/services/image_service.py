@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import imagehash
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import get_settings
 from app.services import background_removal
@@ -75,6 +75,22 @@ class ImageService:
 
         return Image.open(BytesIO(image_data))
 
+    def _load_upload(self, image_data: bytes, original_filename: str) -> Image.Image:
+        """Open an uploaded image with its EXIF orientation already baked in.
+
+        Both callers need it baked: the derivatives written below are re-encoded
+        without the EXIF block, so a phone photo stored straight from the decoder
+        lands permanently sideways, and a hash taken before the bake wouldn't match
+        the same photo hashed after it.
+        """
+        ext = Path(original_filename).suffix.lower()
+        if ext in (".heic", ".heif"):
+            image = self._convert_heic(image_data)
+        else:
+            image = Image.open(BytesIO(image_data))
+        # `or image` because the stubs allow None (that's the in_place=True signature).
+        return ImageOps.exif_transpose(image) or image
+
     def _resize_image(
         self,
         image: Image.Image,
@@ -140,10 +156,7 @@ class ImageService:
             raise ValueError(f"Unsupported file type: {ext}")
 
         # Load image
-        if ext in (".heic", ".heif"):
-            image = self._convert_heic(image_data)
-        else:
-            image = Image.open(BytesIO(image_data))
+        image = self._load_upload(image_data, original_filename)
 
         # Generate base filename
         out_ext = _output_ext()
@@ -227,12 +240,7 @@ class ImageService:
 
         Returns a 16-character hex string representing the 64-bit hash.
         """
-        ext = Path(original_filename).suffix.lower()
-
-        if ext in (".heic", ".heif"):
-            image = self._convert_heic(image_data)
-        else:
-            image = Image.open(BytesIO(image_data))
+        image = self._load_upload(image_data, original_filename)
 
         # Convert to RGB if needed for consistent hashing
         if image.mode != "RGB":
@@ -351,13 +359,17 @@ class ImageService:
         backup_full.unlink()
         return paths
 
-    def rotate_image(self, image_path: str, direction: str = "cw") -> dict[str, str]:
+    def rotate_image(
+        self, image_path: str, direction: str = "cw", degrees: int | None = None
+    ) -> dict[str, str]:
         """
         Rotate an image and regenerate all sizes.
 
         Args:
             image_path: Relative path to the original image (e.g., "user_id/filename.jpg")
             direction: "cw" for clockwise 90°, "ccw" for counter-clockwise 90°
+            degrees: counter-clockwise angle, overriding `direction` when given.
+                Used by AI auto-rotation, which reports 180 as well as 90/270.
 
         Returns:
             dict with updated paths (same as input since we overwrite)
@@ -367,7 +379,8 @@ class ImageService:
         if not original_full.exists():
             raise ValueError(f"Image not found: {image_path}")
 
-        angle = -90 if direction == "cw" else 90  # PIL rotates counter-clockwise by default
+        # PIL rotates counter-clockwise, so "cw" is a negative angle.
+        angle = degrees if degrees is not None else (-90 if direction == "cw" else 90)
 
         image = Image.open(original_full)
 

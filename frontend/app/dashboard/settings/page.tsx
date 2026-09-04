@@ -952,6 +952,28 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Privacy */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('privacy.title')}</CardTitle>
+            <CardDescription>{t('privacy.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-1">
+                <Label>{t('privacy.defaultItemPublic')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('privacy.defaultItemPublicHint')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.default_item_public ?? true}
+                onCheckedChange={(checked) => updateField('default_item_public', checked)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Clothing types */}
         <Card>
           <CardHeader>

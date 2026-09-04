@@ -1784,3 +1784,114 @@ class TestMultiTypeFilter:
 
         remaining = await client.get("/api/v1/items", headers=auth_headers)
         assert sorted(i["type"] for i in remaining.json()["items"]) == ["jacket", "pants"]
+
+
+class TestDuplicateWarning:
+    """POST /items warns about a look-alike instead of dead-ending on it."""
+
+    @staticmethod
+    async def _upload(client: AsyncClient, auth_headers, data: dict | None = None):
+        files = {"image": ("shirt.jpg", _make_test_image_bytes(), "image/jpeg")}
+        with patch("app.api.items.create_pool", new_callable=AsyncMock) as mock_pool:
+            mock_pool.return_value.enqueue_job.return_value.job_id = "fake-job-id"
+            return await client.post(
+                "/api/v1/items", files=files, data=data or {}, headers=auth_headers
+            )
+
+    @pytest.mark.asyncio
+    async def test_second_upload_returns_the_item_it_matched(
+        self, client: AsyncClient, auth_headers, test_user
+    ):
+        first = await self._upload(client, auth_headers, {"name": "Blue Tee"})
+        assert first.status_code == 201
+
+        second = await self._upload(client, auth_headers)
+        assert second.status_code == 409
+        detail = second.json()["detail"]
+        assert detail["code"] == "duplicate_item"
+        assert detail["item"]["id"] == first.json()["id"]
+        assert detail["item"]["name"] == "Blue Tee"
+        # Present so the client can show the image rather than just an id.
+        assert detail["item"]["thumbnail_url"]
+        assert detail["distance"] == 0
+
+    @pytest.mark.asyncio
+    async def test_force_lets_the_user_add_it_anyway(
+        self, client: AsyncClient, auth_headers, test_user, db_session: AsyncSession
+    ):
+        assert (await self._upload(client, auth_headers)).status_code == 201
+        assert (await self._upload(client, auth_headers)).status_code == 409
+        assert (await self._upload(client, auth_headers, {"force": "true"})).status_code == 201
+
+        count = (
+            await db_session.execute(
+                select(func.count())
+                .select_from(ClothingItem)
+                .where(ClothingItem.user_id == test_user.id)
+            )
+        ).scalar_one()
+        assert count == 2
+
+
+class TestDefaultItemPrivacy:
+    @pytest.mark.asyncio
+    async def test_new_items_follow_the_users_default(
+        self, client: AsyncClient, auth_headers, test_user, db_session: AsyncSession
+    ):
+        db_session.add(UserPreference(user_id=test_user.id, default_item_public=True))
+        await db_session.commit()
+
+        files = {"image": ("shirt.jpg", _make_test_image_bytes(), "image/jpeg")}
+        with patch("app.api.items.create_pool", new_callable=AsyncMock) as mock_pool:
+            mock_pool.return_value.enqueue_job.return_value.job_id = "fake-job-id"
+            response = await client.post("/api/v1/items", files=files, headers=auth_headers)
+
+        assert response.status_code == 201
+        assert response.json()["is_public"] is True
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_public_without_preferences(
+        self, client: AsyncClient, auth_headers, test_user
+    ):
+        files = {"image": ("shirt.jpg", _make_test_image_bytes(), "image/jpeg")}
+        with patch("app.api.items.create_pool", new_callable=AsyncMock) as mock_pool:
+            mock_pool.return_value.enqueue_job.return_value.job_id = "fake-job-id"
+            response = await client.post("/api/v1/items", files=files, headers=auth_headers)
+
+        assert response.status_code == 201
+        assert response.json()["is_public"] is True
+
+
+class TestBulkDuplicateThreshold:
+    @pytest.mark.asyncio
+    async def test_bulk_only_refuses_identical_photos_not_similar_ones(
+        self, client: AsyncClient, auth_headers, test_user, db_session: AsyncSession
+    ):
+        """Bulk has no confirm prompt, so a near match must not silently drop a file."""
+        near = BytesIO()
+        # Same scene, one pixel off - well inside the single-upload warning threshold.
+        img = Image.new("RGB", (50, 50), (100, 150, 200))
+        img.putpixel((0, 0), (0, 0, 0))
+        img.save(near, format="JPEG")
+
+        with patch("app.api.items.create_pool", new_callable=AsyncMock) as mock_pool:
+            mock_pool.return_value.enqueue_job.return_value.job_id = "fake-job-id"
+            first = await client.post(
+                "/api/v1/items/bulk",
+                files=[("images", ("a.jpg", _make_test_image_bytes(), "image/jpeg"))],
+                headers=auth_headers,
+            )
+            second = await client.post(
+                "/api/v1/items/bulk",
+                files=[
+                    ("images", ("a.jpg", _make_test_image_bytes(), "image/jpeg")),
+                    ("images", ("b.jpg", near.getvalue(), "image/jpeg")),
+                ],
+                headers=auth_headers,
+            )
+
+        assert first.json()["successful"] == 1
+        results = {r["filename"]: r for r in second.json()["results"]}
+        assert results["a.jpg"]["success"] is False
+        assert results["a.jpg"]["duplicate"] is True
+        assert results["b.jpg"]["success"] is True

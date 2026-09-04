@@ -40,5 +40,24 @@ spring, summer, fall, winter, all-season
 FIT (optional, pick one or null):
 slim, regular, relaxed, oversized, tailored, cropped
 
+OCCASION (pick all that apply):
+everyday, work, formal-event, party, date, sport, travel, lounge, outdoor
+
+CONDITION (required, pick one):
+new, excellent, good, worn, damaged
+
+NAME (required): A short 2-4 word label for this item, e.g. "Blue Oxford Shirt", "Black Leather Boots". No sentences.
+
+BRAND (optional): The brand name ONLY if a logo or label is clearly legible in the image. Use null if you cannot read one. Never guess.
+
+FEATURES (pick 0-4 notable details you can actually see):
+pockets, zipper, buttons, hood, collar, drawstring, embroidery, print, distressed, pleated, belted, cuffed, ribbed, lined, sheer, sequined
+
+ROTATION (required, pick one): How many degrees the image must be rotated COUNTER-CLOCKWISE for the garment to sit upright as worn. Use 0 if it is already upright.
+0, 90, 180, 270
+
+TAGS (pick only from this exact list, or [] if none clearly apply. NEVER invent a tag that is not listed):
+(none)
+
 Output this exact JSON structure (a single object, NOT wrapped in an array):
-{{"type":"TYPE","subtype":null,"primary_color":"COLOR","colors":["COLOR1"],"pattern":"PATTERN","material":null,"formality":"FORMALITY","style":["STYLE1"],"season":["SEASON1","SEASON2"],"fit":null}}
+{{"type":"TYPE","subtype":null,"primary_color":"COLOR","colors":["COLOR1"],"pattern":"PATTERN","material":null,"formality":"FORMALITY","style":["STYLE1"],"season":["SEASON1","SEASON2"],"fit":null,"occasion":["OCCASION1"],"condition":"CONDITION","name":"NAME","brand":null,"features":[],"rotation":0,"tags":[]}}

@@ -94,6 +94,10 @@ class ClothingItem(Base):
     # failures), and drives the retry cooldown in ItemService.claim_error_item_for_retry.
     ai_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ai_processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Fields the user took manual control of at upload time. The tagging worker
+    # must never write these, even when they're empty - an empty value the user
+    # deliberately muted is not the same as one they never filled in.
+    ai_excluded_fields: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     ai_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     ai_raw_response: Mapped[dict | None] = mapped_column(JSONB)
 

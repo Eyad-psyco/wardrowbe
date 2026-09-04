@@ -111,6 +111,11 @@ class PreferenceBase(BaseModel):
         description="Outfit variety preference",
     )
 
+    # Privacy
+    default_item_public: bool = Field(
+        default=True, description="Whether newly added items are visible to family by default"
+    )
+
     # AI Settings
     ai_endpoints: list[AIEndpoint] = Field(
         default_factory=list,
@@ -143,6 +148,7 @@ class PreferenceUpdate(BaseModel):
     avoid_repeat_days: int | None = Field(default=None, ge=0, le=30)
     prefer_underused_items: bool | None = None
     variety_level: str | None = Field(default=None, pattern="^(low|moderate|high)$")
+    default_item_public: bool | None = None
     ai_endpoints: list[AIEndpoint] | None = None
     custom_item_types: list[CustomItemType] | None = None
 

@@ -67,10 +67,7 @@ async function fetchApi<T>(endpoint: string, options: FetchOptions = {}): Promis
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    const message = (typeof data.detail === 'string' ? data.detail : data.detail?.message)
-      || data.error?.message
-      || 'An error occurred';
-    throw new ApiError(message, response.status, data);
+    throw new ApiError(errorMessageFrom(data, 'An error occurred'), response.status, data);
   }
 
   if (response.status === 204) {
@@ -101,6 +98,24 @@ export const api = {
   delete: <T>(endpoint: string, options?: FetchOptions) =>
     fetchApi<T>(endpoint, { ...options, method: 'DELETE' }),
 };
+
+/**
+ * Pull a human message out of a FastAPI error body.
+ *
+ * `detail` is a plain string for most endpoints but an object for the ones that
+ * hand back structured data (duplicate uploads), and dropping the object straight
+ * into `new Error()` renders it as "[object Object]".
+ */
+export function errorMessageFrom(
+  data: { detail?: string | { message?: string }; error?: { message?: string } } | undefined,
+  fallback: string
+): string {
+  return (
+    (typeof data?.detail === 'string' ? data.detail : data?.detail?.message) ||
+    data?.error?.message ||
+    fallback
+  );
+}
 
 const handledErrors = new WeakSet<object>();
 

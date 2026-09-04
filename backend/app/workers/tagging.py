@@ -11,12 +11,27 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.models.item import ClothingItem, ItemStatus, TaggedBy, TaggingStatus
 from app.models.preference import UserPreference
+from app.schemas.item import normalize_user_tags
 from app.services.ai_service import AIService, ClothingTags
+from app.services.image_service import ImageService
+from app.services.item_service import ItemService
 from app.workers.db import get_db_session
 
 logger = logging.getLogger(__name__)
 
 TAGGING_MAX_TRIES = 3
+
+# The only fields a user can mute from the upload modal. Intersecting against this
+# keeps a malformed ai_excluded_fields from suppressing `status` or `ai_processed`
+# and stranding the item in `processing` forever.
+MUTABLE_AI_FIELDS = frozenset(
+    {"type", "subtype", "name", "brand", "primary_color", "colors", "user_tags"}
+)
+
+# Cap on the tag vocabulary offered to the model. A long-lived wardrobe can hold
+# hundreds of distinct tags, and pasting all of them into every prompt costs more
+# than it buys - the list is ordered by usage, so the tail is the cheap part to drop.
+MAX_PROMPT_TAGS = 60
 
 # Margin left below job_timeout so the in-job call budget always fires before
 # arq's own kill (which does not retry - see _tagging_call_budget).
@@ -114,6 +129,11 @@ def tags_to_item_fields(tags: ClothingTags, raw_response: str | None = None) -> 
     fields = {
         "type": tags.type,
         "subtype": tags.subtype,
+        "name": tags.name,
+        "brand": tags.brand,
+        # normalize_user_tags is the same validator the API write path uses, so an
+        # AI-filled tag list is stored in exactly the shape a typed one would be.
+        "user_tags": normalize_user_tags(tags.user_tags) or [],
         "primary_color": tags.primary_color,
         "colors": tags.colors,
         "pattern": tags.pattern,
@@ -133,6 +153,20 @@ def tags_to_item_fields(tags: ClothingTags, raw_response: str | None = None) -> 
     if raw_response:
         fields["ai_raw_response"] = {"raw_text": raw_response}
     return fields
+
+
+async def auto_rotate_image(image_path: str, degrees: int, item_id: str) -> None:
+    """Straighten a stored image the model reported as lying on its side.
+
+    Best-effort and deliberately after the tag commit: the tags are the job's real
+    output, and a rotation that fails must not cost the user a re-analysis. Paths
+    are rewritten in place, so nothing on the row needs updating.
+    """
+    try:
+        await asyncio.to_thread(ImageService().rotate_image, image_path, "cw", degrees)
+        logger.info(f"Auto-rotated item {item_id} image by {degrees}deg")
+    except Exception as e:
+        logger.warning(f"Auto-rotation failed for item {item_id}: {e}")
 
 
 async def mark_item_tagging_skipped(ctx: dict, item_id: str) -> None:
@@ -204,6 +238,7 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
         # Get user's AI endpoints from preferences, and mark this attempt as started
         ai_endpoints = None
         custom_types = None
+        known_tags: list[str] = []
         db = get_db_session(ctx)
         try:
             # Get the item to find user_id
@@ -227,12 +262,19 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
                     f"Using {len(ai_endpoints)} custom AI endpoints for user {item.user_id}"
                 )
 
+            # The model may only reuse tags this user already has, so the vocabulary
+            # is read per job - it grows as they tag more, and starts out empty.
+            distribution = await ItemService(db).get_tag_distribution(item.user_id)
+            known_tags = [row["tag"] for row in distribution[:MAX_PROMPT_TAGS]]
+
             await db.commit()
         finally:
             await db.close()
 
         # Analyze with AI (uses custom endpoints if available)
-        ai_service = AIService(endpoints=ai_endpoints, custom_types=custom_types)
+        ai_service = AIService(
+            endpoints=ai_endpoints, custom_types=custom_types, known_tags=known_tags
+        )
         tags = await asyncio.wait_for(
             ai_service.analyze_image(path), timeout=_tagging_call_budget(ai_service)
         )
@@ -260,8 +302,14 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
             # same loop would otherwise make the guard for the later two fields see the
             # already-updated status and skip them even outside of a race.
             was_pending = item.tagging_status == TaggingStatus.pending
+            # Fields the user took manual control of at upload time. Distinct from the
+            # "already has a value" guard below: a muted field is left alone even when
+            # it's empty, which is exactly what the user asked for by muting it.
+            muted = MUTABLE_AI_FIELDS & set(item.ai_excluded_fields or ())
 
             for field, value in ai_fields.items():
+                if field in muted:
+                    continue
                 # Always update AI metadata fields (including tags JSONB and description)
                 if field in (
                     "ai_processed",
@@ -298,6 +346,9 @@ async def tag_item_image(ctx: dict, item_id: str, image_path: str) -> dict[str, 
 
             await db.commit()
             logger.info(f"Updated item {item_id} with AI tags (status=ready)")
+
+            if tags.rotation:
+                await auto_rotate_image(item.image_path, tags.rotation, item_id)
 
             return {
                 "status": "success",
