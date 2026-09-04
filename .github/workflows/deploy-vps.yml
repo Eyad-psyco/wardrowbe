@@ -26,6 +26,8 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             # Matches the running stack: default docker-compose.yml (frontend :80).
+            # --force-recreate is required: compose often keeps old containers when
+            # only the :latest image digest changed under the same tag.
             docker compose pull
-            docker compose up -d
+            docker compose up -d --force-recreate
             docker compose exec -T backend alembic upgrade head

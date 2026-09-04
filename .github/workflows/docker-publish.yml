@@ -40,9 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -85,11 +82,13 @@ jobs:
             type=semver,pattern={{version}},value=${{ env.RELEASE_VERSION }},enable=${{ env.RELEASE_VERSION != '' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_VERSION }},enable=${{ env.RELEASE_VERSION != '' }}
 
+      # amd64 only: the OVH VPS is x86_64. Building linux/arm64 via QEMU on
+      # GitHub runners hangs/crashes during `npm ci` (Illegal instruction).
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

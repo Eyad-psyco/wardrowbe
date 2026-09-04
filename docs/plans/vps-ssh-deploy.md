@@ -30,7 +30,7 @@ cd "$DEPLOY_PATH"
 git fetch origin main
 git reset --hard origin/main
 docker compose pull
-docker compose up -d
+docker compose up -d --force-recreate
 docker compose exec -T backend alembic upgrade head
 ```
 
@@ -44,6 +44,11 @@ domain exists and you move to prod+TLS, change these commands accordingly.
 
 - Deploy uses default `docker-compose.yml`, not prod+TLS: the VPS serves the
   site on the public IP via `wardrobe-frontend:80` with no Caddy/nginx.
+- Deploy uses `up -d --force-recreate` so containers actually pick up new
+  `:latest` image digests (plain `up -d` left 10-day-old containers running).
+- Docker Publish builds `linux/amd64` only (dropped `linux/arm64` + QEMU).
+  Multi-arch arm64 via QEMU hung ~58m on `npm ci` with
+  `Illegal instruction`; the OVH VPS is `x86_64`.
 
 ## GitHub secrets / variables
 
