@@ -302,6 +302,15 @@ def _looks_like_unparsed_prose(tags: ClothingTags, raw: str | None) -> bool:
     return not stripped.startswith("{") and not stripped.startswith("[")
 
 
+def _needs_tag_repair(tags: ClothingTags) -> bool:
+    """Vision returned something we couldn't turn into clothing fields.
+
+    moondream often emits bounding-box JSON (`top`/`left`/`color`) that parses
+    as JSON but leaves type=unknown — prose detection alone misses that case.
+    """
+    return tags.type == "unknown"
+
+
 _CONFIDENCE_FIELDS = {"type", "primary_color", "pattern", "material", "formality"}
 
 
@@ -735,63 +744,86 @@ class AIService:
 
         tags = ClothingTags()
         last_error = None
-        vision_prose: str | None = None
+        tags_raw: str | None = None
 
         # First pass: structured tags with logprobs for real confidence
         content, err, logprobs_content = await self._call_with_fallback(
             messages_tags, "tags", request_logprobs=True, json_mode=True
         )
         if content:
+            tags_raw = content
             tags = self._parse_tags_from_response(content)
             logprobs_confidence = compute_confidence_from_logprobs(logprobs_content)
             if logprobs_confidence is not None:
                 tags.logprobs_confidence = logprobs_confidence
-            if _looks_like_unparsed_prose(tags, content):
-                vision_prose = content.strip()
         if err:
             last_error = err
 
-        # Caption-style vision models (moondream) ignore JSON instructions. Re-ask
-        # the text model to turn that prose into the tagging schema — both models
-        # are already on the VPS and the text call is cheap on CPU.
-        if vision_prose:
-            logger.info("Vision returned prose instead of JSON; repairing via text model")
-            repair_messages = [
-                {"role": "system", "content": self._tagging_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Convert this clothing description into the required JSON object only. "
-                        "Do not add commentary.\n\n"
-                        f"{vision_prose}"
-                    ),
-                },
-            ]
-            repaired, repair_err, _ = await self._call_with_fallback(
-                repair_messages,
-                "tags-repair",
-                use_vision_model=False,
-                request_logprobs=False,
-                json_mode=True,
-            )
-            if repaired:
-                repaired_tags = self._parse_tags_from_response(repaired)
-                if repaired_tags.type != "unknown":
-                    tags = repaired_tags
-                    if not tags.description:
-                        tags.description = vision_prose[:500]
-            elif repair_err and last_error is None:
-                last_error = repair_err
-
-        # Second pass: human-readable description
-        content, err, _ = await self._call_with_fallback(messages_desc, "description")
-        if content:
-            description = content.strip()
+        # Second pass: human-readable description (also the repair source when
+        # the tags call returned bbox JSON / prose instead of the schema).
+        desc_content, err, _ = await self._call_with_fallback(messages_desc, "description")
+        if desc_content:
+            description = desc_content.strip()
             if description.startswith('"') and description.endswith('"'):
                 description = description[1:-1]
             tags.description = description
-        elif vision_prose and not tags.description:
-            tags.description = vision_prose[:500]
+        elif tags_raw and _looks_like_unparsed_prose(tags, tags_raw) and not tags.description:
+            tags.description = tags_raw.strip()[:500]
+
+        # Caption / detector models (moondream) rarely emit our schema. Prefer
+        # the description for repair — bbox JSON is useless to the text model.
+        if _needs_tag_repair(tags):
+            repair_source = (tags.description or "").strip()
+            if not repair_source and tags_raw and _looks_like_unparsed_prose(tags, tags_raw):
+                repair_source = tags_raw.strip()
+            if repair_source:
+                logger.info("Vision tags unusable; repairing via text model from description")
+                # Keep this prompt short: tiny text models (gemma3:1b) lose the
+                # long clothing_analysis schema and invent wrong types.
+                repair_system = (
+                    "Output ONLY a JSON object for one clothing item. No markdown. "
+                    "Required keys: type, primary_color, pattern, formality, name. "
+                    "Optional: subtype, colors, material, style, season, fit, brand. "
+                    "type must be exactly one of: shirt, t-shirt, top, pants, jeans, shorts, "
+                    "dress, skirt, jacket, coat, sweater, hoodie, blazer, shoes, sneakers, "
+                    "boots, bag, accessories. "
+                    "If the description says jeans, type must be jeans (not shirt). "
+                    "primary_color must be one of: black, white, gray, navy, blue, light-blue, "
+                    "red, burgundy, pink, green, olive, yellow, orange, purple, brown, tan, "
+                    "beige, cream. "
+                    "pattern one of: solid, striped, plaid, checkered, floral, graphic. "
+                    "formality one of: very-casual, casual, smart-casual, business-casual, formal. "
+                    "name: short title like 'Blue jeans'. brand: null if unknown."
+                )
+                repair_messages = [
+                    {"role": "system", "content": repair_system},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Convert this clothing description into the required JSON object only.\n\n"
+                            f"{repair_source}"
+                        ),
+                    },
+                ]
+                repaired, repair_err, _ = await self._call_with_fallback(
+                    repair_messages,
+                    "tags-repair",
+                    use_vision_model=False,
+                    request_logprobs=False,
+                    json_mode=True,
+                )
+                if repaired:
+                    repaired_tags = self._parse_tags_from_response(repaired)
+                    if repaired_tags.type != "unknown":
+                        kept_description = tags.description
+                        tags = repaired_tags
+                        if not tags.description:
+                            tags.description = kept_description or repair_source[:500]
+                elif repair_err and last_error is None:
+                    last_error = repair_err
+
+        if err and last_error is None:
+            last_error = err
 
         if tags.type == "unknown" and not tags.description and last_error:
             raise last_error

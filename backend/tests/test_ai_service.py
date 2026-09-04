@@ -453,7 +453,7 @@ class TestKnownTagAutofill:
 
 
 class TestProseVisionRepair:
-    """moondream-style models return captions; text model must convert to JSON."""
+    """moondream-style models return captions/bboxes; text model must convert to JSON."""
 
     @staticmethod
     def _success(content: str) -> httpx.Response:
@@ -469,11 +469,11 @@ class TestProseVisionRepair:
             '{"type":"jeans","primary_color":"blue","colors":["blue"],'
             '"pattern":"solid","formality":"casual"}'
         )
-        # tags (vision prose) → tags-repair (text JSON) → description
+        # tags (vision prose) → description → tags-repair (text JSON)
         responses = [
             self._success(prose),
-            self._success(repaired),
             self._success("Blue jeans on a mannequin."),
+            self._success(repaired),
         ]
 
         with (
@@ -486,10 +486,36 @@ class TestProseVisionRepair:
         assert tags.primary_color == "blue"
         assert tags.description == "Blue jeans on a mannequin."
         assert mock_post.call_count == 3
-        # Second call is the text-model repair (no image_url parts).
-        repair_body = mock_post.call_args_list[1].kwargs["json"]
+        repair_body = mock_post.call_args_list[2].kwargs["json"]
         assert repair_body["model"] == service.text_model
         assert repair_body.get("format") == "json"
+
+    @pytest.mark.asyncio
+    async def test_bbox_json_is_repaired_from_description(self):
+        """moondream often returns detector JSON that parses but has no clothing fields."""
+        service = AIService()
+        bbox = '{"top": 0.0, "bottom": 0.77, "left": 0.5, "right": 0.76, "color": [0.41, 0.65, 0.79]}'
+        description = "A pair of blue jeans hanging on a mannequin."
+        repaired = (
+            '{"type":"jeans","primary_color":"blue","colors":["blue"],'
+            '"pattern":"solid","formality":"casual","name":"Blue jeans"}'
+        )
+        responses = [
+            self._success(bbox),
+            self._success(description),
+            self._success(repaired),
+        ]
+
+        with (
+            patch.object(service, "_preprocess_image", return_value="fakeb64"),
+            patch("httpx.AsyncClient.post", side_effect=responses),
+        ):
+            tags = await service.analyze_image("/tmp/fake.jpg")
+
+        assert tags.type == "jeans"
+        assert tags.primary_color == "blue"
+        assert tags.name == "Blue jeans"
+        assert tags.description == description
 
     @pytest.mark.asyncio
     async def test_json_mode_rejection_retries_without_format(self):
