@@ -62,7 +62,10 @@ Set these once under the repo Settings:
 | `VPS_USER` | secret | SSH user (e.g. `ubuntu` / `debian`) |
 | `VPS_SSH_KEY` | secret | Private key for a deploy-only user (ed25519 preferred) |
 | `VPS_SSH_PORT` | secret (optional) | Defaults to `22` if omitted |
-| `VPS_DEPLOY_PATH` | variable | Absolute path to the clone, e.g. `/opt/wardrowbe` |
+| `VPS_DEPLOY_PATH` | **variable** (or secret) | Absolute path to the clone, e.g. `/home/debian/wardrowbe` |
+
+If `VPS_DEPLOY_PATH` is missing, deploy fails immediately with a clear error
+(an empty path used to produce `fatal: not a git repository`).
 
 Manual redeploy: Actions → **Deploy VPS** → Run workflow.
 
